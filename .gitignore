@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Output runtime generati dall'app (non versionati)
+profiles/*.json
+missions/*
+reports/*
+!profiles/.gitkeep
+
+.streamlit/secrets.toml

@@ -1,0 +1,115 @@
+{
+  "_note": "Larghezza sensore e lunghezza focale sono valori REALI (fisici), non equivalenti 35mm: servono cosi' per il calcolo del GSD. Fonti: specifiche pubbliche DJI Enterprise. Dove il dato reale non e' pubblicato, e' stimato dal crop factor del sensore a partire dalla focale equivalente e va verificato con i metadati EXIF delle foto reali.",
+  "drones": [
+    {
+      "id": "mavic3e_wide",
+      "drone": "DJI Mavic 3 Enterprise (M3E)",
+      "sensore": "Camera grandangolare RGB",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "image_width_px": 5280,
+      "image_height_px": 3956,
+      "focal_length_mm": 12.29,
+      "note": "Sensore 4/3\" CMOS 20MP"
+    },
+    {
+      "id": "mavic3t_wide",
+      "drone": "DJI Mavic 3T / 3TA (Thermal)",
+      "sensore": "Camera grandangolare RGB",
+      "sensor_width_mm": 6.3,
+      "sensor_height_mm": 4.7,
+      "image_width_px": 8000,
+      "image_height_px": 6000,
+      "focal_length_mm": 4.4,
+      "note": "Sensore 1/2\" CMOS 48MP. Focale reale stimata da crop factor (equiv. 24mm)."
+    },
+    {
+      "id": "mavic3t_thermal",
+      "drone": "DJI Mavic 3T / 3TA (Thermal)",
+      "sensore": "Camera termica",
+      "sensor_width_mm": 6.3,
+      "sensor_height_mm": 4.7,
+      "image_width_px": 640,
+      "image_height_px": 512,
+      "focal_length_mm": 4.5,
+      "note": "Risoluzione termica 640x512 px, equiv. 40mm. Non adatta a GSD sub-cm, utile per rilevamento termico target."
+    },
+    {
+      "id": "m350_h20t_wide",
+      "drone": "DJI Matrice 350 RTK + Zenmuse H20T",
+      "sensore": "Camera grandangolare RGB",
+      "sensor_width_mm": 6.17,
+      "sensor_height_mm": 4.55,
+      "image_width_px": 4000,
+      "image_height_px": 3000,
+      "focal_length_mm": 4.5,
+      "note": "Sensore 1/2.3\" CMOS 12MP, equiv. 24mm"
+    },
+    {
+      "id": "m350_h20t_zoom",
+      "drone": "DJI Matrice 350 RTK + Zenmuse H20T",
+      "sensore": "Camera zoom RGB",
+      "sensor_width_mm": 7.6,
+      "sensor_height_mm": 5.7,
+      "image_width_px": 5184,
+      "image_height_px": 3888,
+      "focal_length_mm": 6.83,
+      "note": "Sensore 1/1.7\" CMOS 20MP, zoom ottico 6.83-119.94mm (usare focale minima per FOV massimo)"
+    },
+    {
+      "id": "m350_h20t_thermal",
+      "drone": "DJI Matrice 350 RTK + Zenmuse H20T",
+      "sensore": "Camera termica",
+      "sensor_width_mm": 6.17,
+      "sensor_height_mm": 4.55,
+      "image_width_px": 640,
+      "image_height_px": 512,
+      "focal_length_mm": 4.5,
+      "note": "Risoluzione termica 640x512 px, equiv. 24mm"
+    },
+    {
+      "id": "m350_p1_24mm",
+      "drone": "DJI Matrice 350 RTK + Zenmuse P1",
+      "sensore": "Fotogrammetria full-frame (obiettivo 24mm)",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "image_width_px": 8192,
+      "image_height_px": 5460,
+      "focal_length_mm": 24.0,
+      "note": "Sensore full-frame 45MP. Ottimo per coperture rapide ad alta quota."
+    },
+    {
+      "id": "m350_p1_35mm",
+      "drone": "DJI Matrice 350 RTK + Zenmuse P1",
+      "sensore": "Fotogrammetria full-frame (obiettivo 35mm)",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "image_width_px": 8192,
+      "image_height_px": 5460,
+      "focal_length_mm": 35.0,
+      "note": "Sensore full-frame 45MP. Buon compromesso quota/dettaglio."
+    },
+    {
+      "id": "m350_p1_50mm",
+      "drone": "DJI Matrice 350 RTK + Zenmuse P1",
+      "sensore": "Fotogrammetria full-frame (obiettivo 50mm)",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "image_width_px": 8192,
+      "image_height_px": 5460,
+      "focal_length_mm": 50.0,
+      "note": "Sensore full-frame 45MP. GSD fine anche a quote piu' alte, FOV ridotto."
+    },
+    {
+      "id": "custom",
+      "drone": "Personalizzato (inserisci parametri manualmente)",
+      "sensore": "-",
+      "sensor_width_mm": null,
+      "sensor_height_mm": null,
+      "image_width_px": null,
+      "image_height_px": null,
+      "focal_length_mm": null,
+      "note": "Usa questa voce per modelli non presenti in elenco"
+    }
+  ]
+}
