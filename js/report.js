@@ -230,6 +230,10 @@ window.SF = window.SF || {};
       <label class="sf-label">Confidenza minima da mostrare (%)</label>
       <input type="range" id="report-confidence-slider" min="0" max="100" step="1" value="${st.minConfidence}">
       <p class="sf-caption" id="report-confidence-value">${st.minConfidence}%</p>
+      <p class="sf-caption">La confidenza misura quanto il colore <em>medio di tutta l'area rilevata</em> è vicino al
+        colore campionato — non solo del punto esatto in cui hai fatto il contagocce. Su un indumento vero (pieghe,
+        ombre, texture del tessuto) è normale che sia ben sotto il 100% anche quando il rilevamento è corretto:
+        non alzare troppo la soglia sopra, o rischi di nascondere target reali.</p>
       <div id="report-metrics"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
       <div id="report-cards"></div>

@@ -8,6 +8,7 @@ const DRONES = [
     "image_width_px": 5280,
     "image_height_px": 3956,
     "focal_length_mm": 12.29,
+    "mechanical_shutter": true,
     "note": "CONFERMATO (EXIF corroborati). Sensore 4/3\" CMOS 20MP, equiv. 24mm."
   },
   {
@@ -19,6 +20,7 @@ const DRONES = [
     "image_width_px": 4000,
     "image_height_px": 3000,
     "focal_length_mm": 30.0,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1/2\" CMOS 12MP, equiv. 162mm."
   },
   {
@@ -30,6 +32,7 @@ const DRONES = [
     "image_width_px": 8000,
     "image_height_px": 6000,
     "focal_length_mm": 4.44,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1/2\" CMOS 48MP, equiv. 24mm."
   },
   {
@@ -41,6 +44,7 @@ const DRONES = [
     "image_width_px": 4000,
     "image_height_px": 3000,
     "focal_length_mm": 30.0,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor (stessa camera della M3E). Sensore 1/2\" CMOS 12MP, equiv. 162mm."
   },
   {
@@ -52,6 +56,7 @@ const DRONES = [
     "image_width_px": 640,
     "image_height_px": 512,
     "focal_length_mm": 9.09,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor, validato incrociando col Matrice 30T. Equiv. 40mm. Non adatta al filtraggio cromatico."
   },
   {
@@ -63,6 +68,7 @@ const DRONES = [
     "image_width_px": 8192,
     "image_height_px": 5460,
     "focal_length_mm": 24.0,
+    "mechanical_shutter": true,
     "note": "CONFERMATO (manuale ufficiale). Sensore full-frame 45MP. Ottimo per coperture rapide ad alta quota."
   },
   {
@@ -74,6 +80,7 @@ const DRONES = [
     "image_width_px": 8192,
     "image_height_px": 5460,
     "focal_length_mm": 35.0,
+    "mechanical_shutter": true,
     "note": "CONFERMATO (manuale ufficiale). Sensore full-frame 45MP. Buon compromesso quota/dettaglio."
   },
   {
@@ -85,6 +92,7 @@ const DRONES = [
     "image_width_px": 8192,
     "image_height_px": 5460,
     "focal_length_mm": 50.0,
+    "mechanical_shutter": true,
     "note": "CONFERMATO (manuale ufficiale). Sensore full-frame 45MP. GSD fine anche a quote piu' alte, FOV ridotto."
   },
   {
@@ -96,6 +104,7 @@ const DRONES = [
     "image_width_px": 4056,
     "image_height_px": 3040,
     "focal_length_mm": 4.5,
+    "mechanical_shutter": false,
     "note": "CONFERMATO (specifiche ufficiali). Sensore 1/2.3\" CMOS 12MP, equiv. 24mm. Non compatibile con Matrice 400."
   },
   {
@@ -107,6 +116,7 @@ const DRONES = [
     "image_width_px": 5184,
     "image_height_px": 3888,
     "focal_length_mm": 6.83,
+    "mechanical_shutter": false,
     "note": "CONFERMATO (specifiche ufficiali). Sensore 1/1.7\" CMOS 20MP, zoom ottico 6.83-119.94mm (usare focale minima per FOV massimo). Non compatibile con Matrice 400."
   },
   {
@@ -118,6 +128,7 @@ const DRONES = [
     "image_width_px": 640,
     "image_height_px": 512,
     "focal_length_mm": 13.5,
+    "mechanical_shutter": false,
     "note": "Focale CONFERMATA (specifiche ufficiali), sensore stimato per coerenza (pattern comune camere termiche DJI). Equiv. 58mm. Non compatibile con Matrice 400. Non adatta al filtraggio cromatico."
   },
   {
@@ -129,6 +140,7 @@ const DRONES = [
     "image_width_px": 8064,
     "image_height_px": 6048,
     "focal_length_mm": 6.72,
+    "mechanical_shutter": false,
     "note": "CONFERMATO (specifiche ufficiali). Sensore 1/1.3\" CMOS 48MP, equiv. 24mm. Su Matrice 300 richiede radiocomando DJI RC Plus."
   },
   {
@@ -140,6 +152,7 @@ const DRONES = [
     "image_width_px": 7328,
     "image_height_px": 5496,
     "focal_length_mm": 7.1,
+    "mechanical_shutter": false,
     "note": "Focale CONFERMATA (specifiche ufficiali), sensore stimato dal formato 1/1.8\". Zoom ottico 7.1-172mm (usare focale minima per FOV massimo). Equiv. 33.4mm."
   },
   {
@@ -151,6 +164,7 @@ const DRONES = [
     "image_width_px": 4000,
     "image_height_px": 3000,
     "focal_length_mm": 4.5,
+    "mechanical_shutter": false,
     "note": "CONFERMATO (specifiche ufficiali). Sensore 1/2\" CMOS 12MP, equiv. 24mm."
   },
   {
@@ -162,6 +176,7 @@ const DRONES = [
     "image_width_px": 8000,
     "image_height_px": 6000,
     "focal_length_mm": 21.0,
+    "mechanical_shutter": false,
     "note": "CONFERMATO (specifiche ufficiali). Sensore 1/2\" CMOS 48MP, zoom ottico 21-75mm (usare focale minima per FOV massimo)."
   },
   {
@@ -173,6 +188,7 @@ const DRONES = [
     "image_width_px": 640,
     "image_height_px": 512,
     "focal_length_mm": 9.1,
+    "mechanical_shutter": false,
     "note": "CONFERMATO (specifiche ufficiali, pixel pitch 12µm). Equiv. 40mm. Non adatta al filtraggio cromatico."
   },
   {
@@ -184,6 +200,7 @@ const DRONES = [
     "image_width_px": 5280,
     "image_height_px": 3956,
     "focal_length_mm": 12.3,
+    "mechanical_shutter": true,
     "note": "STIMATO da crop factor, validato incrociando con Mavic 3E (praticamente identica). Sensore 4/3\" CMOS 20MP, equiv. 24mm."
   },
   {
@@ -195,6 +212,7 @@ const DRONES = [
     "image_width_px": 8064,
     "image_height_px": 6048,
     "focal_length_mm": 19.4,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1/1.3\" CMOS 48MP, equiv. 70mm."
   },
   {
@@ -206,6 +224,7 @@ const DRONES = [
     "image_width_px": 8192,
     "image_height_px": 6144,
     "focal_length_mm": 40.2,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1/1.5\" CMOS 48MP, equiv. 168mm."
   },
   {
@@ -217,6 +236,7 @@ const DRONES = [
     "image_width_px": 8064,
     "image_height_px": 6048,
     "focal_length_mm": 6.7,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor, validato incrociando con Mini 4 Pro (stesso sensore). Sensore 1/1.3\" CMOS 48MP, equiv. 24mm. 4TD: stessa fotocamera del 4T in versione irrobustita per DJI Dock."
   },
   {
@@ -228,6 +248,7 @@ const DRONES = [
     "image_width_px": 8064,
     "image_height_px": 6048,
     "focal_length_mm": 19.4,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1/1.3\" CMOS 48MP, equiv. 70mm."
   },
   {
@@ -239,6 +260,7 @@ const DRONES = [
     "image_width_px": 8192,
     "image_height_px": 6144,
     "focal_length_mm": 40.2,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1/1.5\" CMOS 48MP, equiv. 168mm."
   },
   {
@@ -250,6 +272,7 @@ const DRONES = [
     "image_width_px": 640,
     "image_height_px": 512,
     "focal_length_mm": 12.05,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor (pixel pitch 12µm confermato). Equiv. 53mm, risoluzione nativa (esiste anche una modalita' 1280x1024 interpolata, da non usare per il GSD). Non adatta al filtraggio cromatico."
   },
   {
@@ -261,6 +284,7 @@ const DRONES = [
     "image_width_px": 12288,
     "image_height_px": 8192,
     "focal_length_mm": 14.1,
+    "mechanical_shutter": false,
     "note": "Sensore CONFERMATO (specifiche ufficiali), focale stimata da crop factor. 4/3\" CMOS 100MP, equiv. 28mm."
   },
   {
@@ -272,6 +296,7 @@ const DRONES = [
     "image_width_px": 8064,
     "image_height_px": 6048,
     "focal_length_mm": 20.2,
+    "mechanical_shutter": false,
     "note": "Sensore CONFERMATO (specifiche ufficiali), focale stimata da crop factor. 1/1.3\" CMOS 48MP, equiv. 70mm."
   },
   {
@@ -283,6 +308,7 @@ const DRONES = [
     "image_width_px": 8192,
     "image_height_px": 6144,
     "focal_length_mm": 40.2,
+    "mechanical_shutter": false,
     "note": "Sensore CONFERMATO (specifiche ufficiali), focale stimata da crop factor. 1/1.5\" CMOS 50MP, equiv. 168mm."
   },
   {
@@ -294,6 +320,7 @@ const DRONES = [
     "image_width_px": 8064,
     "image_height_px": 6048,
     "focal_length_mm": 6.66,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1/1.3\" CMOS 48MP, equiv. 24mm."
   },
   {
@@ -305,6 +332,7 @@ const DRONES = [
     "image_width_px": 8192,
     "image_height_px": 6144,
     "focal_length_mm": 8.8,
+    "mechanical_shutter": false,
     "note": "STIMATO da crop factor. Sensore 1\" CMOS 50MP, equiv. 24mm."
   },
   {
@@ -320,4 +348,4 @@ const DRONES = [
   }
 ];
 
-const DRONES_NOTE = "Larghezza sensore e lunghezza focale sono valori REALI (fisici), non equivalenti 35mm: servono cosi' per il calcolo del GSD. Ogni voce ha un campo 'note' che indica se i dati sono CONFERMATI da specifiche ufficiali DJI oppure STIMATI dal crop factor a partire dalla focale equivalente dichiarata da DJI (quando il dato reale non e' pubblicato). Le voci stimate vanno idealmente verificate con i metadati EXIF di foto reali scattate con quel drone. Le camere termiche non sono adatte all'uso con il filtraggio cromatico di SkyFind (pensato per immagini RGB): sono incluse solo per la pianificazione di missione.";
+const DRONES_NOTE = "Larghezza sensore e lunghezza focale sono valori REALI (fisici), non equivalenti 35mm: servono cosi' per il calcolo del GSD. Ogni voce ha un campo 'note' che indica se i dati sono CONFERMATI da specifiche ufficiali DJI oppure STIMATI dal crop factor a partire dalla focale equivalente dichiarata da DJI (quando il dato reale non e' pubblicato). Le voci stimate vanno idealmente verificate con i metadati EXIF di foto reali scattate con quel drone. Le camere termiche non sono adatte all'uso con il filtraggio cromatico di SkyFind (pensato per immagini RGB): sono incluse solo per la pianificazione di missione. Il campo 'mechanical_shutter' (verificato sulle pagine specifiche ufficiali DJI Enterprise, agosto 2026) indica se la camera dispone di un otturatore meccanico oltre a quello elettronico: elimina la distorsione da rolling shutter e permette quindi velocita' di crociera piu' elevate senza deformare l'inquadratura. Confermato disponibile su: Mavic 3 Enterprise (camera wide), Matrice 4E (camera wide), Zenmuse P1. Tutte le altre camere (incluse le varianti tele/zoom delle stesse camere wide, e i modelli Mavic 3T, Matrice 4T, Matrice 30, Zenmuse H20/H20T/H30, Mavic 4 Pro, Mini 4/5 Pro) usano solo otturatore elettronico.";

@@ -7,11 +7,20 @@ window.SF = window.SF || {};
 (function () {
   'use strict';
 
-  // ---- Costanti (identiche a modules/mission_planner.py) ----
+  // ---- Costanti (identiche a modules/mission_planner.py, + velocita' differenziata per tipo di otturatore) ----
   const FRONT_OVERLAP_MIN = 70, FRONT_OVERLAP_MAX = 80;
   const SIDE_OVERLAP_MIN = 60, SIDE_OVERLAP_MAX = 70;
   const GSD_TARGET_MIN_CM = 0.8, GSD_TARGET_MAX_CM = 1.5;
-  const MAX_PRACTICAL_SPEED_MS = 7.0;
+
+  // Tempo di posa assunto per il calcolo della sfocatura da movimento (ipotesi cautelativa
+  // in pieno giorno/luce buona).
+  const ASSUMED_SHUTTER_S = 1 / 1000;
+  const MIN_PRACTICAL_SPEED_MS = 2.0;
+  // Tetto operativo: le camere con otturatore MECCANICO (verificato: Mavic 3E camera wide,
+  // Matrice 4E camera wide, Zenmuse P1) non soffrono di rolling shutter e possono volare piu'
+  // veloci senza deformare l'inquadratura. Le camere solo elettroniche restano piu' caute.
+  const MAX_SPEED_MECHANICAL_MS = 12.0;
+  const MAX_SPEED_ELECTRONIC_MS = 6.0;
 
   function altitudeForGsd(gsdCmPx, sensorWidthMm, focalLengthMm, imageWidthPx) {
     return (gsdCmPx * focalLengthMm * imageWidthPx) / (sensorWidthMm * 100);
@@ -25,11 +34,25 @@ window.SF = window.SF || {};
   function groundFootprintM(altitudeM, sensorWidthMm, sensorHeightMm, focalLengthMm) {
     return [(sensorWidthMm * altitudeM) / focalLengthMm, (sensorHeightMm * altitudeM) / focalLengthMm];
   }
+  function recommendedMaxSpeedMs(gsdCmPx, mechanicalShutter) {
+    const cap = mechanicalShutter ? MAX_SPEED_MECHANICAL_MS : MAX_SPEED_ELECTRONIC_MS;
+    const gsdM = gsdCmPx / 100;
+    const speed = gsdM / ASSUMED_SHUTTER_S;
+    return Math.max(MIN_PRACTICAL_SPEED_MS, Math.min(cap, speed));
+  }
+  function recommendedSpeedRange(mechanicalShutter) {
+    const vMin = recommendedMaxSpeedMs(GSD_TARGET_MIN_CM, mechanicalShutter);
+    const vMax = recommendedMaxSpeedMs(GSD_TARGET_MAX_CM, mechanicalShutter);
+    return [Math.min(vMin, vMax), Math.max(vMin, vMax)];
+  }
 
   const mpState = {
     built: false,
     droneId: DRONES[0].id,
-    custom: { sensor_width_mm: 6.3, sensor_height_mm: 4.7, image_width_px: 5280, image_height_px: 3956, focal_length_mm: 4.5 },
+    custom: {
+      sensor_width_mm: 6.3, sensor_height_mm: 4.7, image_width_px: 5280, image_height_px: 3956,
+      focal_length_mm: 4.5, mechanical_shutter: false,
+    },
   };
 
   function currentSensor() {
@@ -66,7 +89,10 @@ window.SF = window.SF || {};
     const [footW, footH] = groundFootprintM(
       (altMin + altMax) / 2, sensor.sensor_width_mm, sensor.sensor_height_mm, sensor.focal_length_mm
     );
-    const maxSpeed = MAX_PRACTICAL_SPEED_MS;
+    const mechanical = !!sensor.mechanical_shutter;
+    const [speedMin, speedMax] = recommendedSpeedRange(mechanical);
+    const speedTxt = speedMin === speedMax ? `${speedMin.toFixed(0)} m/s` : `${speedMin.toFixed(0)}–${speedMax.toFixed(0)} m/s`;
+    const speedForBullet = speedMax; // usa il tetto superiore del range per il consiglio "non superare"
 
     out.innerHTML = `
       ${thermalNote}
@@ -75,7 +101,7 @@ window.SF = window.SF || {};
         <div class="sf-metric"><div class="sf-metric-label">Quota di volo consigliata</div><div class="sf-metric-value">${altMin.toFixed(0)}–${altMax.toFixed(0)} m</div></div>
         <div class="sf-metric"><div class="sf-metric-label">Overlap frontale</div><div class="sf-metric-value">${FRONT_OVERLAP_MIN}–${FRONT_OVERLAP_MAX}%</div></div>
         <div class="sf-metric"><div class="sf-metric-label">Overlap laterale</div><div class="sf-metric-value">${SIDE_OVERLAP_MIN}–${SIDE_OVERLAP_MAX}%</div></div>
-        <div class="sf-metric"><div class="sf-metric-label">Velocità massima</div><div class="sf-metric-value">${maxSpeed.toFixed(0)} m/s</div></div>
+        <div class="sf-metric"><div class="sf-metric-label">Velocità massima</div><div class="sf-metric-value">${speedTxt}</div></div>
       </div>
       <div class="sf-success">
         Vola tra <strong>${altMin.toFixed(0)} e ${altMax.toFixed(0)} metri</strong> dal suolo (AGL), con
@@ -86,11 +112,13 @@ window.SF = window.SF || {};
       </div>
       <p><strong>Consigli pratici per lo scatto:</strong></p>
       <ul>
-        <li>Imposta l'overlap ai valori indicati sopra nel software di pianificazione missione (es. DJI Pilot 2):
-          front overlap ${FRONT_OVERLAP_MIN}-${FRONT_OVERLAP_MAX}%, side overlap ${SIDE_OVERLAP_MIN}-${SIDE_OVERLAP_MAX}%.</li>
-        <li>Non superare <strong>${maxSpeed.toFixed(0)} m/s</strong> (${(maxSpeed * 3.6).toFixed(0)} km/h) di velocità di
-          crociera: oltre questa soglia rischi foto mosse e overlap insufficiente. Con poca luce, cielo coperto o
-          vento vola ancora più piano.</li>
+        <li>Overlap: usa <strong>${FRONT_OVERLAP_MAX}% frontale / ${SIDE_OVERLAP_MAX}% laterale</strong> in bosco o su
+          terreno complesso/accidentato (più foto = più probabilità di inquadrare il target tra rami e ombre); puoi
+          scendere a <strong>${FRONT_OVERLAP_MIN}% / ${SIDE_OVERLAP_MIN}%</strong> su superfici piatte o aperte
+          (prati, campi) per coprire l'area più in fretta.</li>
+        <li>Non superare <strong>${speedForBullet.toFixed(0)} m/s</strong> (${(speedForBullet * 3.6).toFixed(0)} km/h) di velocità di
+          crociera${mechanical ? ' — questa camera ha un otturatore meccanico, quindi puoi restare vicino al limite superiore del range senza distorsioni da rolling shutter' : ' — questa camera ha solo otturatore elettronico: oltre questa soglia rischi sia foto mosse sia inquadrature "inclinate" per effetto rolling shutter'}.
+          Con poca luce, cielo coperto o vento vola più piano, verso il limite inferiore del range.</li>
         <li>Inclinazione camera (gimbal): tra <strong>-75° e -85°</strong> (leggermente obliqua) nella maggior parte
           dei casi — aiuta a vedere sotto rami/sporgenze e riduce le ombre nette sul bersaglio. Con vegetazione
           fitta passa a <strong>-90° (nadir puro)</strong>, per massimizzare le possibilità di inquadrare un varco
@@ -104,20 +132,25 @@ window.SF = window.SF || {};
           nel modulo di elaborazione.</li>
       </ul>
       <details class="sf-expander">
-        <summary>Dettagli tecnici (sensore e calcolo GSD)</summary>
+        <summary>Dettagli tecnici (sensore, otturatore e calcolo GSD)</summary>
         <table class="sf-table">
           <tr><th>Parametro</th><th>Valore</th></tr>
           <tr><td>Larghezza sensore</td><td>${sensor.sensor_width_mm} mm</td></tr>
           <tr><td>Altezza sensore</td><td>${sensor.sensor_height_mm} mm</td></tr>
           <tr><td>Focale reale</td><td>${sensor.focal_length_mm} mm</td></tr>
           <tr><td>Risoluzione</td><td>${sensor.image_width_px} x ${sensor.image_height_px} px</td></tr>
+          <tr><td>Otturatore meccanico</td><td>${mechanical ? 'Sì' : 'No (solo elettronico)'}</td></tr>
         </table>
         ${!sensor.isCustom && sensor.note ? `<p class="sf-caption">ℹ️ ${SF.escapeHtml(sensor.note)}</p>` : ''}
-        <p class="sf-caption">Range calcolato per un GSD (dettaglio a terra) target di ${GSD_TARGET_MIN_CM.toFixed(1)}–${GSD_TARGET_MAX_CM.toFixed(1)}
+        <p class="sf-caption">Range di quota calcolato per un GSD (dettaglio a terra) target di ${GSD_TARGET_MIN_CM.toFixed(1)}–${GSD_TARGET_MAX_CM.toFixed(1)}
           cm/pixel (verificato sul dataset SAR accademico Heridal, foto scattate tra 40 e 65m, e sulle specifiche
-          reali della flotta).</p>
-        <p class="sf-caption">Velocità massima: tetto operativo prudenziale di ${maxSpeed.toFixed(0)} m/s (non solo motion
-          blur — lascia margine per overlap, vento e affidabilità del rilevamento).</p>
+          reali della flotta) — per il rilevamento colore di un indumento questo dettaglio è più che sufficiente,
+          non serve un GSD più fine.</p>
+        <p class="sf-caption">Velocità massima: calcolata dalla sfocatura da movimento (~1 px di GSD al tempo di posa
+          assunto di 1/1000s) entro un tetto operativo di ${(mechanical ? MAX_SPEED_MECHANICAL_MS : MAX_SPEED_ELECTRONIC_MS).toFixed(0)}
+          m/s — più alto per le camere con otturatore meccanico (nessun rolling shutter), verificato sulle pagine
+          specifiche ufficiali DJI Enterprise per Mavic 3E, Matrice 4E e Zenmuse P1 (camera wide); tutte le altre
+          camere della flotta usano solo otturatore elettronico.</p>
       </details>
     `;
   }
@@ -153,6 +186,11 @@ window.SF = window.SF || {};
       </div>
       <label class="sf-label">Lunghezza focale reale (mm, non equivalente)</label>
       <input type="number" step="0.1" min="0.1" id="mp-focal-length" value="${c.focal_length_mm}">
+      <label class="sf-label" style="margin-top:0.7rem;">
+        <input type="checkbox" id="mp-mechanical-shutter" ${c.mechanical_shutter ? 'checked' : ''}>
+        La camera ha un otturatore meccanico (oltre a quello elettronico)
+      </label>
+      <p class="sf-caption">Se non lo sai, lascia deselezionato: è l'opzione più prudente (velocità massima consigliata più bassa).</p>
     `;
     const bind = (id, key, isFloat) => {
       document.getElementById(id).addEventListener('input', (e) => {
@@ -166,6 +204,10 @@ window.SF = window.SF || {};
     bind('mp-image-width', 'image_width_px', false);
     bind('mp-image-height', 'image_height_px', false);
     bind('mp-focal-length', 'focal_length_mm', true);
+    document.getElementById('mp-mechanical-shutter').addEventListener('change', (e) => {
+      mpState.custom.mechanical_shutter = e.target.checked;
+      renderResults();
+    });
   }
 
   function buildOnce() {

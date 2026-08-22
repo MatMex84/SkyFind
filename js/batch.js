@@ -250,6 +250,9 @@ window.SF = window.SF || {};
           <select id="batch-detection-mode">
             ${Object.entries(DETECTION_MODE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
           </select>
+          <p class="sf-caption">"Massima precisione" è la più severa (un pixel deve superare due controlli invece di
+            uno): riduce i falsi positivi, ma su un indumento reale può mostrare una confidenza più bassa dello
+            "Standard" — non è un errore, è normale. Se non sei sicuro parti da "Standard".</p>
         </div>
         <div>
           <label class="sf-label"><input type="checkbox" id="batch-require-gps"> Scarta foto senza posizione GPS</label>
