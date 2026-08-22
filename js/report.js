@@ -8,7 +8,9 @@ window.SF = window.SF || {};
 (function () {
   'use strict';
 
-  const st = { built: false, minConfidence: 0, cropUrls: new Map() };
+  const st = { built: false, minConfidence: 0, cropUrls: new Map(), browseIdx: 0 };
+  const fileUrlCache = new WeakMap();
+  let browseItems = []; // [{result, dets, file}], costruito all'apertura della modalita' Sfoglia
 
   function cropUrl(det) {
     if (!st.cropUrls.has(det)) {
@@ -16,6 +18,11 @@ window.SF = window.SF || {};
       st.cropUrls.set(det, URL.createObjectURL(blob));
     }
     return st.cropUrls.get(det);
+  }
+
+  function fileUrl(file) {
+    if (!fileUrlCache.has(file)) fileUrlCache.set(file, URL.createObjectURL(file));
+    return fileUrlCache.get(file);
   }
 
   function mapsLink(lat, lon) {
@@ -44,6 +51,88 @@ window.SF = window.SF || {};
     });
   }
 
+  // ------------------------------------------------------------- modalità Sfoglia (schermo intero, in sequenza)
+  function setupBrowseModal() {
+    if (document.getElementById('sf-browse-modal')) return;
+    const modal = document.createElement('div');
+    modal.id = 'sf-browse-modal';
+    modal.className = 'sf-browse-modal';
+    modal.innerHTML = `
+      <div class="sf-browse-top">
+        <span class="sf-browse-counter" id="sf-browse-counter"></span>
+        <button class="sf-browse-close" id="sf-browse-close" title="Chiudi (Esc)">×</button>
+      </div>
+      <div class="sf-browse-stage">
+        <button class="sf-browse-nav prev" id="sf-browse-prev" title="Foto precedente (←)">‹</button>
+        <div class="sf-browse-frame" id="sf-browse-frame"></div>
+        <button class="sf-browse-nav next" id="sf-browse-next" title="Foto successiva (→)">›</button>
+      </div>
+      <div class="sf-browse-caption" id="sf-browse-caption"></div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('sf-browse-close').addEventListener('click', closeBrowse);
+    document.getElementById('sf-browse-prev').addEventListener('click', () => browseStep(-1));
+    document.getElementById('sf-browse-next').addEventListener('click', () => browseStep(1));
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeBrowse();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (!modal.classList.contains('open')) return;
+      if (e.key === 'Escape') closeBrowse();
+      else if (e.key === 'ArrowLeft') browseStep(-1);
+      else if (e.key === 'ArrowRight') browseStep(1);
+    });
+  }
+
+  function openBrowse(startIdx) {
+    const filtered = getFiltered();
+    const files = SF.state.batchFiles || [];
+    browseItems = filtered.map(([r, dets]) => ({ result: r, dets, file: files[r._idx] }));
+    if (!browseItems.length) return;
+    st.browseIdx = Math.max(0, Math.min(browseItems.length - 1, startIdx || 0));
+    document.getElementById('sf-browse-modal').classList.add('open');
+    renderBrowseFrame();
+  }
+
+  function closeBrowse() {
+    const modal = document.getElementById('sf-browse-modal');
+    if (modal) modal.classList.remove('open');
+  }
+
+  function browseStep(delta) {
+    if (!browseItems.length) return;
+    st.browseIdx = (st.browseIdx + delta + browseItems.length) % browseItems.length;
+    renderBrowseFrame();
+  }
+
+  function renderBrowseFrame() {
+    const item = browseItems[st.browseIdx];
+    if (!item) return;
+    const frame = document.getElementById('sf-browse-frame');
+    frame.innerHTML = '';
+    document.getElementById('sf-browse-counter').textContent = `Foto ${st.browseIdx + 1} di ${browseItems.length}`;
+
+    const bestConf = item.dets.length ? Math.max(...item.dets.map((d) => d.confidence)) : 0;
+    const gpsTxt =
+      item.result.gps_lat !== null
+        ? `📍 <a href="${mapsLink(item.result.gps_lat, item.result.gps_lon)}" target="_blank" rel="noopener">${item.result.gps_lat.toFixed(6)}, ${item.result.gps_lon.toFixed(6)}</a>`
+        : '📍 GPS non disponibile';
+    document.getElementById('sf-browse-caption').innerHTML =
+      `<strong>${SF.escapeHtml(item.result.name)}</strong> — ${item.dets.length} rilevamento/i (max ${SF.formatNum(bestConf)}%) · ` +
+      `${gpsTxt} · 🕒 ${SF.escapeHtml(item.result.datetime_original || 'n/d')}`;
+
+    if (item.file) {
+      const img = document.createElement('img');
+      const canvas = document.createElement('canvas');
+      img.src = fileUrl(item.file);
+      img.addEventListener('load', () => drawCircles(canvas, img, item.dets, -1));
+      frame.appendChild(img);
+      frame.appendChild(canvas);
+    } else {
+      frame.innerHTML = '<p class="sf-caption" style="color:#fff; padding:2rem;">Anteprima foto non disponibile (ricaricata da una sessione precedente).</p>';
+    }
+  }
+
   function openLightbox(det, photoName) {
     const box = document.getElementById('sf-lightbox');
     document.getElementById('sf-lightbox-img').src = cropUrl(det);
@@ -53,7 +142,7 @@ window.SF = window.SF || {};
     box.classList.add('open');
   }
 
-  function renderPhotoCard(result, file, dets) {
+  function renderPhotoCard(result, file, dets, browseIndex) {
     const card = document.createElement('div');
     card.className = 'sf-photo-card';
 
@@ -71,7 +160,10 @@ window.SF = window.SF || {};
             <span>🕒 ${SF.escapeHtml(result.datetime_original || 'n/d')}</span>
           </div>
         </div>
-        <span class="sf-photo-card-chevron">▶</span>
+        <div style="display:flex; align-items:center; gap:0.6rem; flex-shrink:0;">
+          <button class="sf-btn" id="browse-open-${result._idx}" title="Apri in modalità Sfoglia">🖼️ Sfoglia da qui</button>
+          <span class="sf-photo-card-chevron">▶</span>
+        </div>
       </div>
       <div class="sf-photo-card-body">
         <div class="sf-photo-preview" id="prev-${result._idx}"></div>
@@ -83,6 +175,10 @@ window.SF = window.SF || {};
       const wasOpen = card.classList.contains('open');
       card.classList.toggle('open');
       if (!wasOpen) renderPhotoBody(card, result, file, dets);
+    });
+    card.querySelector(`#browse-open-${result._idx}`).addEventListener('click', (e) => {
+      e.stopPropagation();
+      openBrowse(browseIndex);
     });
 
     return card;
@@ -235,6 +331,10 @@ window.SF = window.SF || {};
         ombre, texture del tessuto) è normale che sia ben sotto il 100% anche quando il rilevamento è corretto:
         non alzare troppo la soglia sopra, o rischi di nascondere target reali.</p>
       <div id="report-metrics"></div>
+      <div style="margin: 0.8rem 0 0.4rem;">
+        <button class="sf-btn primary" id="report-browse-btn">🖼️ Sfoglia foto in sequenza</button>
+        <span class="sf-caption" style="margin-left:0.6rem;">Vista a schermo intero, foto per foto, con frecce ← →.</span>
+      </div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
       <div id="report-cards"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
@@ -257,6 +357,7 @@ window.SF = window.SF || {};
     document.getElementById('report-export-csv').addEventListener('click', () => {
       downloadBlob(buildCsvReport(results, st.minConfidence), 'skyfind_detections.csv', 'text/csv');
     });
+    document.getElementById('report-browse-btn').addEventListener('click', () => openBrowse(0));
 
     renderFiltered();
   }
@@ -284,8 +385,8 @@ window.SF = window.SF || {};
       return;
     }
     const files = SF.state.batchFiles || [];
-    filtered.forEach(([r, dets]) => {
-      cardsEl.appendChild(renderPhotoCard(r, files[r._idx], dets));
+    filtered.forEach(([r, dets], i) => {
+      cardsEl.appendChild(renderPhotoCard(r, files[r._idx], dets, i));
     });
   }
 
@@ -311,6 +412,7 @@ window.SF = window.SF || {};
 
   SF.init_report = function () {
     setupLightbox();
+    setupBrowseModal();
     render();
   };
 })();

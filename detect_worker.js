@@ -20,67 +20,9 @@ const CONFIG = {
   cropPaddingPx: 20,
 };
 
-function buildMask(cv, mat, profile, colorSpace, kernelSize) {
-  let maskHsv = null, maskLab = null;
-  if (colorSpace === 'hsv' || colorSpace === 'both') {
-    const hsv = new cv.Mat();
-    cv.cvtColor(mat, hsv, cv.COLOR_RGB2HSV);
-    const hb = hsvBounds(profile);
-    const lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [hb.lower[0], hb.lower[1], hb.lower[2], 0]);
-    const upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [hb.upper[0], hb.upper[1], hb.upper[2], 255]);
-    maskHsv = new cv.Mat();
-    cv.inRange(hsv, lower, upper, maskHsv);
-    hsv.delete(); lower.delete(); upper.delete();
-  }
-  if (colorSpace === 'lab' || colorSpace === 'both') {
-    const lab = new cv.Mat();
-    cv.cvtColor(mat, lab, cv.COLOR_RGB2Lab);
-    const lb = labBounds(profile);
-    const lower = new cv.Mat(lab.rows, lab.cols, lab.type(), [lb.lower[0], lb.lower[1], lb.lower[2], 0]);
-    const upper = new cv.Mat(lab.rows, lab.cols, lab.type(), [lb.upper[0], lb.upper[1], lb.upper[2], 255]);
-    maskLab = new cv.Mat();
-    cv.inRange(lab, lower, upper, maskLab);
-    lab.delete(); lower.delete(); upper.delete();
-  }
-
-  let mask;
-  if (colorSpace === 'hsv') { mask = maskHsv; }
-  else if (colorSpace === 'lab') { mask = maskLab; }
-  else {
-    mask = new cv.Mat();
-    cv.bitwise_and(maskHsv, maskLab, mask);
-    maskHsv.delete(); maskLab.delete();
-  }
-
-  const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kernelSize, kernelSize));
-  cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kernel);
-  cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kernel);
-  kernel.delete();
-  return mask;
-}
-
-/** Percentuale di match cromatico: 100% = colore medio del profilo, 0% = al limite della tolleranza. */
-function colorConfidence(cv, regionLabMat, maskMat, profile) {
-  const rows = regionLabMat.rows, cols = regionLabMat.cols;
-  const labData = regionLabMat.data; // Uint8, 3 canali (RGB2Lab -> CV_8UC3)
-  const maskData = maskMat.data;
-  const [ml, ma, mb] = profile.mean_lab;
-  let sumDelta = 0, n = 0;
-  for (let i = 0; i < rows * cols; i++) {
-    if (maskData[i] > 0) {
-      const l = labData[i * 3], a = labData[i * 3 + 1], b = labData[i * 3 + 2];
-      const dl = l - ml, da = a - ma, db = b - mb;
-      sumDelta += Math.sqrt(dl * dl + da * da + db * db);
-      n++;
-    }
-  }
-  if (n === 0) return 0;
-  const meanDelta = sumDelta / n;
-  const [tl, ta, tb] = profile.tolerance_lab;
-  const maxTol = Math.sqrt(tl * tl + ta * ta + tb * tb) || 1;
-  const confidence = 100 * (1 - meanDelta / maxTol);
-  return Math.max(0, Math.min(100, confidence));
-}
+// buildMask() e colorConfidence() sono definite in color_calib.js (importato
+// sopra) e condivise con l'anteprima live del modulo Calibrazione Colore, cosi'
+// l'anteprima mostra esattamente cio' che questo worker rilevera' in batch.
 
 function matFromImageBitmap(cv, bitmap, targetW, targetH) {
   const canvas = new OffscreenCanvas(targetW, targetH);

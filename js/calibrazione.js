@@ -16,7 +16,8 @@ window.SF = window.SF || {};
     built: false,
     mode: 'photo', // 'photo' | 'palette'
     profileName: 'target_1',
-    currentPatchRgba: null, // {data, width, height}
+    currentPatchRgba: null, // {data, width, height} — usato in modalita' palette
+    samples: [], // {x, y, patch:{data,width,height}} — punti campionati in modalita' foto
     currentProfile: null,
     pointCaption: '',
     sampleSource: '',
@@ -25,6 +26,9 @@ window.SF = window.SF || {};
     zoom: 1, left: 0, top: 0, fitScale: 1,
     dragging: false, moved: false, startX: 0, startY: 0, startLeft: 0, startTop: 0,
   };
+
+  let livePreviewTimer = null;
+  let livePreviewGen = 0;
 
   // ---------------------------------------------------------------- pan/zoom picker
   function effScale() { return st.zoom * st.fitScale; }
@@ -46,6 +50,7 @@ window.SF = window.SF || {};
     st.imgEl.style.top = st.top + 'px';
     const label = document.getElementById('calib-pz-zoomlabel');
     if (label) label.textContent = st.zoom.toFixed(1) + 'x';
+    positionCrosshairs();
   }
 
   function zoomTo(newZoom, anchorClientX, anchorClientY) {
@@ -83,7 +88,7 @@ window.SF = window.SF || {};
   }
 
   function onPointerDown(e) {
-    if (e.target.closest('.sf-pz-btn')) return; // lascia gestire il click ai bottoni +/-/reset
+    if (e.target.closest('.sf-pz-btn') || e.target.closest('.sf-pz-mark')) return; // lascia gestire il click ai bottoni e ai marker punti
     const viewport = document.getElementById('calib-pz-viewport');
     st.dragging = true; st.moved = false;
     st.startX = e.clientX; st.startY = e.clientY;
@@ -134,8 +139,13 @@ window.SF = window.SF || {};
       st.natW = img.naturalWidth;
       st.natH = img.naturalHeight;
       st.sampleSource = file.name;
+      st.samples = []; // nuova foto: si riparte da zero punti campionati
+      st.currentProfile = null;
+      livePreviewGen++; // invalida un'eventuale anteprima live ancora in calcolo sulla foto precedente
+      const oldPreview = document.getElementById('calib-preview');
+      if (oldPreview) oldPreview.innerHTML = '';
 
-      // canvas nascosto a piena risoluzione, usato solo per campionare i pixel al click
+      // canvas nascosto a piena risoluzione, usato per campionare i pixel al click e per l'anteprima live
       st.fullCanvas = document.createElement('canvas');
       st.fullCanvas.width = st.natW;
       st.fullCanvas.height = st.natH;
@@ -166,6 +176,7 @@ window.SF = window.SF || {};
 
       document.getElementById('calib-pz-container').classList.remove('sf-hidden');
       document.getElementById('calib-pick-hint').classList.remove('sf-hidden');
+      rebuildCrosshairs(); // pulisce eventuali marker della foto precedente e azzera la toolbar
     };
     img.src = url;
   }
@@ -184,35 +195,180 @@ window.SF = window.SF || {};
     return { data: imgData.data, width: x1 - x0, height: y1 - y0 };
   }
 
+  const MAX_SAMPLES = 12;
+
   async function pickPoint(x, y) {
-    st.currentPatchRgba = clampedPatch(x, y);
-    st.pointCaption = `Punto selezionato: x=${x}, y=${y} (immagine ${st.natW}x${st.natH} px)`;
+    if (st.samples.length >= MAX_SAMPLES) {
+      st.samples.shift(); // punti piu' vecchi ceduti al piu' recente, oltre il limite pratico
+    }
+    st.samples.push({ x, y, patch: clampedPatch(x, y) });
+    st.pointCaption =
+      st.samples.length === 1
+        ? `Punto selezionato: x=${x}, y=${y} (immagine ${st.natW}x${st.natH} px)`
+        : `${st.samples.length} punti selezionati sull'indumento — continua a cliccare su pieghe, ombra e luce diretta per un profilo piu' robusto.`;
+    rebuildCrosshairs();
     await computeAndRenderProfile();
-    positionCrosshair(x, y);
   }
 
-  function positionCrosshair(x, y) {
-    let crosshair = document.getElementById('calib-pz-crosshair');
+  function rebuildCrosshairs() {
     const viewport = document.getElementById('calib-pz-viewport');
-    if (!crosshair) {
-      crosshair = document.createElement('div');
-      crosshair.id = 'calib-pz-crosshair';
-      crosshair.className = 'sf-pz-crosshair';
-      viewport.appendChild(crosshair);
-    }
+    if (!viewport) return;
+    viewport.querySelectorAll('.sf-pz-mark').forEach((el) => el.remove());
+    st.samples.forEach((sample, i) => {
+      const mark = document.createElement('div');
+      mark.className = 'sf-pz-mark';
+      mark.dataset.idx = String(i);
+      mark.title = 'Clicca per rimuovere questo punto';
+      mark.textContent = String(i + 1);
+      mark.addEventListener('click', (e) => {
+        e.stopPropagation();
+        st.samples.splice(i, 1);
+        rebuildCrosshairs();
+        if (st.samples.length) {
+          computeAndRenderProfile();
+        } else {
+          st.currentProfile = null;
+          document.getElementById('calib-preview').innerHTML = '';
+        }
+      });
+      viewport.appendChild(mark);
+    });
+    positionCrosshairs();
+    renderPointsToolbar();
+  }
+
+  function positionCrosshairs() {
     const s = effScale();
-    crosshair.style.left = st.left + x * s + 'px';
-    crosshair.style.top = st.top + y * s + 'px';
+    document.querySelectorAll('#calib-pz-viewport .sf-pz-mark').forEach((el) => {
+      const i = parseInt(el.dataset.idx, 10);
+      const sample = st.samples[i];
+      if (!sample) return;
+      el.style.left = st.left + sample.x * s + 'px';
+      el.style.top = st.top + sample.y * s + 'px';
+    });
+  }
+
+  function renderPointsToolbar() {
+    const el = document.getElementById('calib-points-toolbar');
+    if (!el) return;
+    if (!st.samples.length) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = `<span class="sf-caption">${st.samples.length}/${MAX_SAMPLES} punto/i campionato/i (numeri sulla foto) —</span>
+      <span class="sf-link-btn" id="calib-undo-point">annulla ultimo</span> ·
+      <span class="sf-link-btn" id="calib-clear-points">cancella tutti</span>`;
+    document.getElementById('calib-undo-point').addEventListener('click', () => {
+      st.samples.pop();
+      rebuildCrosshairs();
+      if (st.samples.length) {
+        computeAndRenderProfile();
+      } else {
+        st.currentProfile = null;
+        document.getElementById('calib-preview').innerHTML = '';
+      }
+    });
+    document.getElementById('calib-clear-points').addEventListener('click', () => {
+      st.samples = [];
+      rebuildCrosshairs();
+      st.currentProfile = null;
+      document.getElementById('calib-preview').innerHTML = '';
+    });
+  }
+
+  /** Campioni attivi (patch RGBA) da cui calcolare il profilo, in entrambe le modalita'. */
+  function activeSamples() {
+    if (st.mode === 'palette') return st.currentPatchRgba ? [st.currentPatchRgba] : [];
+    return st.samples.map((s) => s.patch);
   }
 
   async function computeAndRenderProfile() {
-    if (!st.currentPatchRgba) return;
+    const samples = activeSamples();
+    if (!samples.length) return;
     const cv = await SF.loadCv();
-    const { data, width, height } = st.currentPatchRgba;
-    st.currentProfile = computeProfileFromPatch(cv, data, width, height);
+    st.currentProfile = computeProfileFromSamples(cv, samples);
     st.currentProfile.name = st.profileName;
     st.currentProfile.sample_source = st.sampleSource;
     renderProfilePreview();
+  }
+
+  // ---------------------------------------------------------------- anteprima live sulla foto campione
+  function computeLivePreview(cv, profile, colorSpace) {
+    if (!st.fullCanvas) return null;
+    const maxDim = 800;
+    const scale = Math.min(1, maxDim / Math.max(st.natW, st.natH));
+    const sw = Math.max(1, Math.round(st.natW * scale)), sh = Math.max(1, Math.round(st.natH * scale));
+    const smallCanvas = document.createElement('canvas');
+    smallCanvas.width = sw; smallCanvas.height = sh;
+    const sctx = smallCanvas.getContext('2d');
+    sctx.drawImage(st.fullCanvas, 0, 0, sw, sh);
+    const imageData = sctx.getImageData(0, 0, sw, sh);
+
+    const rgba = cv.matFromImageData(imageData);
+    const rgb = new cv.Mat();
+    cv.cvtColor(rgba, rgb, cv.COLOR_RGBA2RGB);
+    rgba.delete();
+
+    const mask = buildMask(cv, rgb, profile, colorSpace, 5);
+    const lab = new cv.Mat();
+    cv.cvtColor(rgb, lab, cv.COLOR_RGB2Lab);
+    const confidence = colorConfidence(cv, lab, mask, profile);
+
+    let filled = 0;
+    const md = mask.data;
+    for (let i = 0; i < md.length; i++) if (md[i] > 0) filled++;
+    const fillRatio = (100 * filled) / md.length;
+
+    // overlay: foto originale con tinta calda sui pixel che verrebbero rilevati
+    const overlayData = sctx.getImageData(0, 0, sw, sh);
+    const od = overlayData.data;
+    for (let i = 0; i < sw * sh; i++) {
+      if (md[i] > 0) {
+        od[i * 4] = Math.round(od[i * 4] * 0.35 + 245 * 0.65);
+        od[i * 4 + 1] = Math.round(od[i * 4 + 1] * 0.35 + 166 * 0.65);
+        od[i * 4 + 2] = Math.round(od[i * 4 + 2] * 0.35 + 35 * 0.65);
+      }
+    }
+    sctx.putImageData(overlayData, 0, 0);
+
+    rgb.delete(); mask.delete(); lab.delete();
+
+    return { fillRatio, confidence, overlayDataUrl: smallCanvas.toDataURL('image/jpeg', 0.85) };
+  }
+
+  function scheduleLivePreview() {
+    const el0 = document.getElementById('calib-live-preview');
+    if (st.mode !== 'photo' || !st.fullCanvas) {
+      if (el0) el0.innerHTML = '';
+      return;
+    }
+    if (el0) el0.innerHTML = '<p class="sf-caption">Calcolo anteprima…</p>';
+    clearTimeout(livePreviewTimer);
+    const gen = ++livePreviewGen;
+    const profile = st.currentProfile;
+    livePreviewTimer = setTimeout(() => {
+      const cv = window.cv;
+      if (!cv || !profile) return;
+      const hsvRes = computeLivePreview(cv, profile, 'hsv');
+      const bothRes = computeLivePreview(cv, profile, 'both');
+      if (gen !== livePreviewGen) return; // superata da un campionamento piu' recente
+      const el = document.getElementById('calib-live-preview');
+      if (!el || !hsvRes || !bothRes) return;
+      el.innerHTML = `
+        <h3 style="margin-top:0;">Anteprima rilevamento su questa foto</h3>
+        <p class="sf-caption">Cosa rileverebbe davvero il colore scelto su questa foto, prima di lanciare il batch —
+          la zona con tinta arancione è quella che verrebbe individuata (modalità "Massima precisione").</p>
+        <img class="sf-live-preview-img" src="${bothRes.overlayDataUrl}">
+        <table class="sf-table" style="margin-top:0.6rem;">
+          <tr><th></th><th>Area rilevata</th><th>Confidenza media</th></tr>
+          <tr><td>⚡ Standard</td><td>${SF.formatNum(hsvRes.fillRatio)}%</td><td>${SF.formatNum(hsvRes.confidence)}%</td></tr>
+          <tr><td>🎯 Massima precisione</td><td>${SF.formatNum(bothRes.fillRatio)}%</td><td>${SF.formatNum(bothRes.confidence)}%</td></tr>
+        </table>
+        <p class="sf-caption">Basato su ${profile.n_samples} punto/i campionato/i. Se l'area rilevata sembra troppo
+          piccola, clicca altri punti sull'indumento (soprattutto pieghe/ombre) per allargare la tolleranza in modo
+          mirato — questo calcolo avviene solo qui in calibrazione e non rallenta l'elaborazione batch.</p>
+      `;
+    }, 250);
   }
 
   function renderProfilePreview() {
@@ -225,14 +381,8 @@ window.SF = window.SF || {};
     const profile = st.currentProfile;
     const hex = profileHexColor(cv, profile);
 
-    const [l0, a0, b0] = profile.mean_lab;
-    const tolL = profile.tolerance_lab[0];
-    const steps = [-1, -2 / 3, -1 / 3, 0, 1 / 3, 2 / 3, 1];
-    const swatches = steps
-      .map((frac) => `<div class="sf-swatch-item" style="background-color:${labToHex(cv, l0 + frac * tolL, a0, b0)};"></div>`)
-      .join('');
-
     const captionTxt = st.mode === 'photo' ? st.pointCaption : 'Colore scelto dalla palette';
+    const nPts = profile.n_samples || 1;
 
     out.innerHTML = `
       <h2 class="sf-section">Colore selezionato</h2>
@@ -243,16 +393,7 @@ window.SF = window.SF || {};
           <label class="sf-label">Nome profilo</label>
           <input type="text" id="calib-profile-name" value="${SF.escapeHtml(profile.name)}">
         </div>
-        <div>
-          <h3 style="margin-top:0;">Anteprima tolleranza</h3>
-          <p class="sf-caption">Il range di colore ancora riconosciuto, dal più scuro al più chiaro:</p>
-          <div class="sf-swatch-row">${swatches}</div>
-          <div style="display:flex; justify-content:space-between; margin-top:0.3rem;">
-            <span class="sf-caption">⬅ più scuro</span>
-            <span class="sf-caption">centro</span>
-            <span class="sf-caption">più chiaro ➡</span>
-          </div>
-        </div>
+        <div id="calib-live-preview"></div>
       </div>
       <details class="sf-expander">
         <summary>Dettagli tecnici (HSV / CIE-LAB)</summary>
@@ -268,6 +409,9 @@ window.SF = window.SF || {};
             <p class="sf-caption">Range maschera (LAB): ${JSON.stringify(labBounds(profile).lower)} → ${JSON.stringify(labBounds(profile).upper)}</p>
           </div>
         </div>
+        <p class="sf-caption">Tolleranza calcolata su ${nPts} punto/i campionato/i: con un solo punto è il valore
+          fisso di base (come prima); con più punti si allarga in automatico in base a quanto il colore varia tra i
+          punti scelti (pieghe, ombra, luce), fino a un tetto massimo per non introdurre troppi falsi positivi.</p>
       </details>
       <button class="sf-btn primary" id="calib-save-btn">💾 Salva profilo</button>
       <div id="calib-save-msg"></div>
@@ -287,6 +431,8 @@ window.SF = window.SF || {};
       renderSavedProfiles();
       SF.updateSidebarStatus();
     });
+
+    scheduleLivePreview();
   }
 
   function renderSavedProfiles() {
@@ -350,7 +496,8 @@ window.SF = window.SF || {};
         <label class="sf-label">Foto del target (es. l'indumento)</label>
         <input type="file" id="calib-file-input" accept="image/*">
         <p class="sf-caption sf-hidden" id="calib-pick-hint">🖱️ Trascina la foto per spostarti, usa <strong>+ / −</strong>
-          per ingrandire (anche rotellina del mouse), clicca per scegliere il colore del target.</p>
+          per ingrandire (anche rotellina del mouse). Clicca <strong>uno o più punti</strong> sul target (pieghe,
+          ombra, luce diretta): più punti campioni, più il rilevamento sarà affidabile su foto reali.</p>
         <div id="calib-pz-container" class="sf-pz-wrap sf-hidden">
           <div id="calib-pz-viewport" class="sf-pz-viewport">
             <div class="sf-pz-hint" id="calib-pz-hint">clicca per scegliere il colore</div>
@@ -361,6 +508,7 @@ window.SF = window.SF || {};
             </div>
             <div class="sf-pz-zoomlabel" id="calib-pz-zoomlabel">1.0x</div>
           </div>
+          <div id="calib-points-toolbar" style="margin-top:0.5rem;"></div>
         </div>
       `;
       setupPzViewport();
@@ -392,7 +540,9 @@ window.SF = window.SF || {};
       r.addEventListener('change', (e) => {
         st.mode = e.target.value;
         st.currentPatchRgba = null;
+        st.samples = [];
         st.currentProfile = null;
+        livePreviewGen++;
         document.getElementById('calib-preview').innerHTML = '';
         renderModeBody();
       });
