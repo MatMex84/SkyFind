@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin:0; padding:0; background:transparent; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  #wrap { position:relative; border-radius:10px; overflow:hidden; }
+  #viewport { position:relative; width:100%; height:100%; overflow:hidden; background:#0e1117; cursor:default; touch-action:none; }
+  #img { position:absolute; left:0; top:0; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+  #marker {
+    position:absolute; width:14px; height:14px; margin-left:-7px; margin-top:-7px;
+    border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1.5px rgba(0,0,0,0.6), 0 1px 4px rgba(0,0,0,0.5);
+    display:none; pointer-events:none; background:rgba(255,255,255,0.15);
+  }
+  #hint {
+    position:absolute; left:10px; top:10px; padding:5px 10px; border-radius:7px;
+    background:rgba(15,17,22,0.55); color:#f0f0f0; font-size:12px; letter-spacing:0.01em;
+    pointer-events:none; backdrop-filter:blur(2px); transition:opacity 0.4s ease;
+  }
+  #controls { position:absolute; right:10px; bottom:10px; display:flex; flex-direction:column; gap:7px; }
+  .ctl-btn {
+    width:34px; height:34px; border-radius:50%; border:1px solid rgba(255,255,255,0.18);
+    background:rgba(15,17,22,0.55); color:#f0f0f0; font-size:17px; line-height:1;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none;
+    backdrop-filter:blur(2px); transition:background 0.15s ease;
+  }
+  .ctl-btn:hover { background:rgba(35,40,50,0.75); }
+  .ctl-btn:active { background:rgba(50,58,72,0.85); }
+  #zoomlabel {
+    position:absolute; right:10px; top:10px; padding:4px 9px; border-radius:7px;
+    background:rgba(15,17,22,0.55); color:#f0f0f0; font-size:11.5px;
+    pointer-events:none; backdrop-filter:blur(2px);
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="viewport">
+    <img id="img" draggable="false">
+    <div id="marker"></div>
+  </div>
+  <div id="hint">🖱️ trascina per spostare · clicca per scegliere il colore</div>
+  <div id="zoomlabel">1.0×</div>
+  <div id="controls">
+    <div class="ctl-btn" id="btnPlus" title="Zoom avanti">+</div>
+    <div class="ctl-btn" id="btnMinus" title="Zoom indietro">−</div>
+    <div class="ctl-btn" id="btnReset" title="Reimposta vista">⟳</div>
+  </div>
+</div>
+<script>
+(function () {
+  var W = 0, H = 0, DW = 0, DH = 0;
+  var fitScale = 1;
+  var zoom = 1, minZoom = 1, maxZoom = 6;
+  var left = 0, top = 0;
+  var dragging = false, moved = false;
+  var startMouseX = 0, startMouseY = 0, startLeft = 0, startTop = 0, downTime = 0;
+  var clickSeq = 0;
+  var lastImageId = null;
+  var hintTimer = null;
+
+  var wrapEl, viewportEl, imgEl, markerEl, hintEl, zoomLabelEl;
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function effScale() { return zoom * fitScale; }
+
+  function send(v) {
+    window.parent.postMessage({ isStreamlitMessage: true, type: "streamlit:setComponentValue", value: v, dataType: "json" }, "*");
+  }
+  function setFrameHeight(h) {
+    window.parent.postMessage({ isStreamlitMessage: true, type: "streamlit:setFrameHeight", height: h }, "*");
+  }
+
+  function applyBounds() {
+    var s = effScale();
+    var dw = W * s, dh = H * s;
+    left = dw <= DW ? (DW - dw) / 2 : clamp(left, DW - dw, 0);
+    top = dh <= DH ? (DH - dh) / 2 : clamp(top, DH - dh, 0);
+  }
+
+  function render() {
+    var s = effScale();
+    var dw = W * s, dh = H * s;
+    imgEl.style.width = dw + "px";
+    imgEl.style.height = dh + "px";
+    imgEl.style.left = left + "px";
+    imgEl.style.top = top + "px";
+    viewportEl.style.cursor = zoom > 1.001 ? "grab" : "default";
+    zoomLabelEl.textContent = zoom.toFixed(1) + "×";
+  }
+
+  function zoomTo(newZoom) {
+    newZoom = clamp(newZoom, minZoom, maxZoom);
+    var s = effScale();
+    var cx = (DW / 2 - left) / s;
+    var cy = (DH / 2 - top) / s;
+    zoom = newZoom;
+    var s2 = effScale();
+    left = DW / 2 - cx * s2;
+    top = DH / 2 - cy * s2;
+    applyBounds();
+    render();
+  }
+
+  function resetView() {
+    zoom = 1; left = 0; top = 0;
+    applyBounds();
+    render();
+  }
+
+  function fadeHint() {
+    if (hintTimer) clearTimeout(hintTimer);
+    hintEl.style.opacity = "1";
+    hintTimer = setTimeout(function () { hintEl.style.opacity = "0"; }, 2600);
+  }
+
+  function onDown(clientX, clientY) {
+    dragging = true; moved = false;
+    startMouseX = clientX; startMouseY = clientY;
+    startLeft = left; startTop = top;
+    downTime = Date.now();
+    viewportEl.style.cursor = "grabbing";
+  }
+  function onMove(clientX, clientY) {
+    if (!dragging) return;
+    var dx = clientX - startMouseX;
+    var dy = clientY - startMouseY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+    left = startLeft + dx;
+    top = startTop + dy;
+    applyBounds();
+    render();
+  }
+  function onUp(clientX, clientY) {
+    if (!dragging) return;
+    dragging = false;
+    viewportEl.style.cursor = zoom > 1.001 ? "grab" : "default";
+    var dt = Date.now() - downTime;
+    if (!moved && dt < 700) {
+      var rect = viewportEl.getBoundingClientRect();
+      var vx = clientX - rect.left;
+      var vy = clientY - rect.top;
+      var s = effScale();
+      var ix = clamp(Math.round((vx - left) / s), 0, W - 1);
+      var iy = clamp(Math.round((vy - top) / s), 0, H - 1);
+      clickSeq += 1;
+      markerEl.style.left = vx + "px";
+      markerEl.style.top = vy + "px";
+      markerEl.style.display = "block";
+      send({ x: ix, y: iy, seq: clickSeq });
+    }
+  }
+
+  function init(args) {
+    W = args.sent_width; H = args.sent_height;
+    DW = args.display_width; DH = args.display_height;
+    fitScale = DW / W;
+    wrapEl.style.width = DW + "px";
+    wrapEl.style.height = DH + "px";
+
+    if (args.image_id !== lastImageId) {
+      imgEl.src = "data:image/jpeg;base64," + args.image_b64;
+      lastImageId = args.image_id;
+      zoom = 1; left = 0; top = 0;
+      markerEl.style.display = "none";
+      fadeHint();
+    }
+    applyBounds();
+    render();
+    setFrameHeight(DH + 2);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    wrapEl = document.getElementById("wrap");
+    viewportEl = document.getElementById("viewport");
+    imgEl = document.getElementById("img");
+    markerEl = document.getElementById("marker");
+    hintEl = document.getElementById("hint");
+    zoomLabelEl = document.getElementById("zoomlabel");
+
+    viewportEl.addEventListener("mousedown", function (e) {
+      if (e.button !== 0) return;
+      onDown(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", function (e) { onMove(e.clientX, e.clientY); });
+    window.addEventListener("mouseup", function (e) { onUp(e.clientX, e.clientY); });
+
+    viewportEl.addEventListener("touchstart", function (e) {
+      var t = e.touches[0]; onDown(t.clientX, t.clientY); e.preventDefault();
+    }, { passive: false });
+    window.addEventListener("touchmove", function (e) {
+      if (!dragging) return;
+      var t = e.touches[0]; onMove(t.clientX, t.clientY); e.preventDefault();
+    }, { passive: false });
+    window.addEventListener("touchend", function (e) {
+      var t = e.changedTouches[0]; onUp(t.clientX, t.clientY);
+    });
+
+    document.getElementById("btnPlus").addEventListener("click", function (e) { e.stopPropagation(); zoomTo(zoom * 1.4); });
+    document.getElementById("btnMinus").addEventListener("click", function (e) { e.stopPropagation(); zoomTo(zoom / 1.4); });
+    document.getElementById("btnReset").addEventListener("click", function (e) { e.stopPropagation(); resetView(); });
+
+    window.addEventListener("message", function (event) {
+      var data = event.data;
+      if (data && data.type === "streamlit:render") {
+        init(data.args);
+      }
+    });
+    window.parent.postMessage({ isStreamlitMessage: true, type: "streamlit:componentReady", apiVersion: 1 }, "*");
+  });
+})();
+</script>
+</body>
+</html>

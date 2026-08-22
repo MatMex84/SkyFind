@@ -1,0 +1,13 @@
+# Tema SkyFind: coerente con la palette del report HTML esportato (modules/report.py)
+# in modo che l'app live e il report scaricato abbiano lo stesso linguaggio visivo.
+
+[theme]
+base = "dark"
+primaryColor = "#6EA8FE"            # blu cielo — brand primario (bottoni, slider, link)
+backgroundColor = "#0E1117"         # sfondo principale
+secondaryBackgroundColor = "#161B22" # sidebar, input, code block
+textColor = "#E6E6E6"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

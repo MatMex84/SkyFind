@@ -1,4 +1,9 @@
-"""Modulo 2 - Estrazione e calibrazione del profilo colore del campione target."""
+"""Modulo 2 - Estrazione e calibrazione del profilo colore del campione target.
+
+Selezione rapida del colore in due modalita' (contagocce su foto o palette),
+un solo cursore di tolleranza (1-5) con anteprima live di quanto si allarga
+il range verso lo scuro/chiaro: nessun parametro tecnico da impostare a mano.
+"""
 
 import sys
 from pathlib import Path
@@ -11,107 +16,148 @@ from PIL import Image
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules import color_calibration as cc
+from modules import ui
+from modules.pan_zoom_picker import pan_zoom_picker
 
-st.set_page_config(page_title="Calibrazione Colore - SkyFind", page_icon="🎨", layout="wide")
-st.title("🎨 Calibrazione Colore Campione")
-st.caption("Carica una foto dell'indumento/target e ricava il profilo colore (HSV + CIE-LAB) da usare nel filtraggio.")
+ui.inject_base_style()
+ui.sidebar_mission_status()
+ui.page_header(
+    "🎨", "Calibrazione Colore Campione",
+    "Scegli il colore del target col contagocce su una foto oppure da una palette. Il resto è automatico.",
+    module=2,
+)
 
-uploaded = st.file_uploader("Immagine campione", type=["jpg", "jpeg", "png", "bmp"])
+MAX_DISPLAY_WIDTH = 640
+PATCH_HALF = 4  # patch campionata: (2*PATCH_HALF+1) x (2*PATCH_HALF+1) px attorno al click
 
-if uploaded is None:
-    st.info("Carica un'immagine del target (es. foto dell'indumento, anche uno scatto di prova) per iniziare.")
-    st.stop()
 
-pil_image = Image.open(uploaded).convert("RGB")
-image_rgb = np.array(pil_image)
-image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-h_img, w_img = image_bgr.shape[:2]
+mode = st.radio(
+    "Come vuoi selezionare il colore del target?",
+    ["📷 Contagocce su una foto", "🎨 Palette colore"],
+    horizontal=True,
+)
+
+patch_bgr = None
+sample_source = ""
+point_caption = ""
+
+if mode.startswith("📷"):
+    uploaded = st.file_uploader("Foto del target (es. l'indumento)", type=["jpg", "jpeg", "png", "bmp"])
+    if uploaded is None:
+        st.info("Carica una foto del target, poi clicca sul punto esatto del colore da usare (contagocce).")
+        st.stop()
+
+    pil_image = Image.open(uploaded).convert("RGB")
+    image_rgb = np.array(pil_image)
+    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+    h_img, w_img = image_bgr.shape[:2]
+
+    st.caption("🖱️ Trascina la foto per spostarti, usa **+ / −** per ingrandire, clicca per scegliere il colore del target.")
+    result = pan_zoom_picker(
+        image_rgb, image_id=uploaded.file_id, display_width=MAX_DISPLAY_WIDTH, key="sf_pan_zoom",
+    )
+
+    if result is None:
+        st.info("👆 Clicca sulla foto qui sopra, esattamente sul colore del target, per selezionarlo.")
+        st.stop()
+
+    real_x, real_y = result["x"], result["y"]
+
+    try:
+        patch_bgr = cc.extract_roi(
+            image_bgr,
+            (real_x - PATCH_HALF, real_y - PATCH_HALF, 2 * PATCH_HALF + 1, 2 * PATCH_HALF + 1),
+        )
+    except ValueError:
+        patch_bgr = image_bgr[real_y:real_y + 1, real_x:real_x + 1]
+
+    sample_source = uploaded.name
+    point_caption = f"Punto selezionato: x={real_x}, y={real_y} (immagine {w_img}x{h_img} px)"
+
+else:
+    hex_color = st.color_picker("Scegli il colore del target", value="#c82828")
+    rgb = tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    patch_bgr = np.full((2 * PATCH_HALF + 1, 2 * PATCH_HALF + 1, 3), rgb[::-1], dtype=np.uint8)
+    sample_source = "palette"
+    point_caption = "Colore scelto dalla palette"
+
+st.divider()
 
 col_left, col_right = st.columns([1, 1])
 
 with col_left:
-    st.subheader("1. Selezione ROI (crop manuale)")
-    use_roi = st.checkbox("Ritaglia una regione (ROI) invece di usare l'intera immagine", value=(max(h_img, w_img) > 200))
+    st.subheader("Colore selezionato")
+    picked_hex = "#%02x%02x%02x" % tuple(int(c) for c in patch_bgr.reshape(-1, 3).mean(axis=0)[::-1])
+    st.markdown(
+        f'<div style="background-color:{picked_hex};height:90px;border-radius:10px;'
+        f'border:1px solid rgba(255,255,255,0.15);"></div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(f"{point_caption} · {picked_hex}")
 
-    roi = None
-    if use_roi:
-        x = st.slider("X iniziale", 0, max(w_img - 1, 0), 0)
-        y = st.slider("Y iniziale", 0, max(h_img - 1, 0), 0)
-        w = st.slider("Larghezza ROI", 1, w_img - x, min(w_img - x, w_img))
-        h = st.slider("Altezza ROI", 1, h_img - y, min(h_img - y, h_img))
-        roi = (x, y, w, h)
-        preview = image_rgb[y:y + h, x:x + w]
-        st.image(preview, caption="Anteprima ROI selezionata", use_container_width=True)
-    else:
-        st.image(image_rgb, caption="Immagine campione completa", use_container_width=True)
-
-    st.subheader("2. Parametri estrazione")
-    k_colors = st.slider("Numero colori dominanti (k-means)", 1, 6, 3)
     profile_name = st.text_input("Nome profilo", value="target_1")
 
 with col_right:
-    st.subheader("3. Tolleranza colore (regolabile)")
-    st.markdown("**Spazio HSV** (H: tonalità 0-179, S: saturazione, V: luminosità)")
-    tol_h = st.slider("Tolleranza H", 0, 90, 10)
-    tol_s = st.slider("Tolleranza S", 0, 128, 60)
-    tol_v = st.slider("Tolleranza V", 0, 128, 60)
+    st.subheader("Tolleranza")
+    tolerance_level = st.select_slider(
+        "Quanto deve essere permissivo il riconoscimento del colore?",
+        options=[1, 2, 3, 4, 5],
+        value=cc.DEFAULT_TOLERANCE_LEVEL,
+        format_func=lambda v: cc.TOLERANCE_LEVEL_LABELS[v],
+    )
+    st.caption("Bassa = colore molto specifico (meno falsi positivi). Alta = copre più ombre/esposizioni diverse.")
 
-    st.markdown("**Spazio CIE-LAB** (L: luminosità, a/b: componenti cromatiche — più robusto a ombre/esposizione)")
-    tol_l = st.slider("Tolleranza L", 0, 128, 15)
-    tol_a = st.slider("Tolleranza a", 0, 128, 15)
-    tol_b = st.slider("Tolleranza b", 0, 128, 15)
+tol_hsv = cc.TOLERANCE_LEVEL_HSV[tolerance_level]
+tol_lab = cc.TOLERANCE_LEVEL_LAB[tolerance_level]
 
-    if st.button("🔍 Estrai profilo colore", type="primary"):
-        profile = cc.compute_color_profile(
-            image_bgr,
-            name=profile_name,
-            roi=roi,
-            k=k_colors,
-            tolerance_hsv=(tol_h, tol_s, tol_v),
-            tolerance_lab=(tol_l, tol_a, tol_b),
-            sample_source=uploaded.name,
+profile = cc.compute_color_profile(
+    patch_bgr, name=profile_name, roi=None, k=1,
+    tolerance_hsv=tol_hsv, tolerance_lab=tol_lab, sample_source=sample_source,
+)
+
+st.subheader("Anteprima tolleranza")
+st.caption("Il range di colore ancora riconosciuto, dal più scuro al più chiaro, aumentando la tolleranza:")
+l0, a0, b0 = profile.mean_lab
+tol_l = profile.tolerance_lab[0]
+steps = np.linspace(-1.0, 1.0, 7)
+swatch_cols = st.columns(7)
+for frac, col in zip(steps, swatch_cols):
+    hex_i = cc.lab_to_hex(l0 + frac * tol_l, a0, b0)
+    with col:
+        st.markdown(
+            f'<div style="background-color:{hex_i};height:46px;border-radius:6px;'
+            f'border:1px solid rgba(255,255,255,0.15);"></div>',
+            unsafe_allow_html=True,
         )
-        st.session_state["color_profile"] = profile
+c1, c2, c3 = st.columns(3)
+c1.caption("⬅ più scuro")
+c2.caption("colore scelto (centro)")
+c3.caption("più chiaro ➡")
 
-if "color_profile" in st.session_state:
-    profile = st.session_state["color_profile"]
-    st.divider()
-    st.subheader("4. Profilo colore estratto")
-
-    c1, c2 = st.columns(2)
-    with c1:
+with st.expander("Dettagli tecnici (HSV / CIE-LAB)"):
+    d1, d2 = st.columns(2)
+    with d1:
         st.markdown("**Colore medio HSV**")
         st.code(f"H={profile.mean_hsv[0]}  S={profile.mean_hsv[1]}  V={profile.mean_hsv[2]}")
         lower_hsv, upper_hsv = profile.hsv_bounds()
         st.caption(f"Range maschera cv2.inRange (HSV): {lower_hsv.tolist()} → {upper_hsv.tolist()}")
-    with c2:
+    with d2:
         st.markdown("**Colore medio CIE-LAB**")
         st.code(f"L={profile.mean_lab[0]}  a={profile.mean_lab[1]}  b={profile.mean_lab[2]}")
         lower_lab, upper_lab = profile.lab_bounds()
         st.caption(f"Range maschera cv2.inRange (LAB): {lower_lab.tolist()} → {upper_lab.tolist()}")
 
-    st.markdown("**Palette colori dominanti (k-means, in ordine di frequenza)**")
-    swatch_cols = st.columns(len(profile.dominant_hsv))
-    for i, (hsv_center, col) in enumerate(zip(profile.dominant_hsv, swatch_cols)):
-        swatch_hsv = np.uint8([[hsv_center]])
-        swatch_bgr = cv2.cvtColor(swatch_hsv, cv2.COLOR_HSV2BGR)[0][0]
-        swatch_rgb = swatch_bgr[::-1]
-        hex_color = "#%02x%02x%02x" % tuple(int(c) for c in swatch_rgb)
-        with col:
-            st.markdown(
-                f'<div style="background-color:{hex_color};height:60px;border-radius:6px;'
-                f'border:1px solid #999;"></div>',
-                unsafe_allow_html=True,
-            )
-            st.caption(hex_color)
-
-    if st.button("💾 Salva profilo"):
-        path = cc.save_profile(profile)
-        st.success(f"Profilo salvato in `{path}`. Sarà riutilizzabile dal modulo di elaborazione immagini.")
+if st.button("💾 Salva profilo", type="primary"):
+    path = cc.save_profile(profile)
+    st.success(f"Profilo salvato in `{path}`. Sarà riutilizzabile dal modulo di elaborazione immagini.")
 
 saved = cc.list_saved_profiles()
 if saved:
     st.divider()
     st.subheader("Profili salvati")
-    for p in saved:
-        st.write(f"📄 {p.name}")
+    pills = " ".join(
+        f'<span class="sf-module-pill" style="color:#e6e6e6;border-color:rgba(255,255,255,0.15);'
+        f'background:rgba(255,255,255,0.04);">📄 {p.stem}</span>'
+        for p in saved
+    )
+    st.markdown(pills, unsafe_allow_html=True)

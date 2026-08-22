@@ -8,9 +8,11 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules import report as rpt
+from modules import ui
 
-st.set_page_config(page_title="Report - SkyFind", page_icon="📋", layout="wide")
-st.title("📋 Report Rilevamenti")
+ui.inject_base_style()
+ui.sidebar_mission_status()
+ui.page_header("📋", "Report Rilevamenti", module=4)
 
 results = st.session_state.get("batch_results")
 if not results:
@@ -22,7 +24,12 @@ total_detections = sum(len(r.detections) for r in results)
 
 st.caption(f"Profilo colore usato: **{profile_name}** — {len(results)} foto analizzate, {total_detections} target individuati.")
 
-min_confidence = st.slider("Confidenza minima da mostrare (%)", 0, 100, 40)
+min_confidence = st.slider(
+    "Confidenza minima da mostrare (%)", 0, 100, 0,
+    help="0 = mostra tutti i rilevamenti trovati dall'elaborazione batch. Alza la soglia solo se vuoi "
+    "nascondere i rilevamenti meno somiglianti al colore calibrato (più falsi positivi esclusi, ma rischi "
+    "di nascondere anche target reali fotografati con luce/ombra diversa).",
+)
 
 filtered = [(r, [d for d in r.detections if d.confidence >= min_confidence]) for r in results]
 filtered = [(r, dets) for r, dets in filtered if dets]
@@ -34,7 +41,7 @@ m2.metric("Target mostrati", sum(len(dets) for _, dets in filtered))
 st.divider()
 
 if not filtered:
-    st.warning("Nessun rilevamento sopra la soglia di confidenza scelta.")
+    st.warning("Nessun rilevamento sopra la soglia di confidenza scelta. Prova ad abbassare il cursore qui sopra.")
 else:
     for r, dets in sorted(filtered, key=lambda t: -max(d.confidence for d in t[1])):
         gps_txt = (

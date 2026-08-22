@@ -21,6 +21,31 @@ DEFAULT_PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 DEFAULT_TOLERANCE_HSV = (10, 60, 60)   # (H, S, V)
 DEFAULT_TOLERANCE_LAB = (15, 15, 15)   # (L, a, b)
 
+# Scala di tolleranza semplificata (1-5) per la selezione rapida del colore (contagocce/palette):
+# un solo cursore al posto dei 6 parametri HSV/LAB separati.
+TOLERANCE_LEVEL_LABELS = {
+    1: "1 · Molto stretta",
+    2: "2 · Stretta",
+    3: "3 · Media",
+    4: "4 · Ampia",
+    5: "5 · Molto ampia",
+}
+TOLERANCE_LEVEL_HSV = {
+    1: (5, 25, 25),
+    2: (8, 40, 40),
+    3: (10, 55, 55),
+    4: (14, 75, 75),
+    5: (18, 100, 100),
+}
+TOLERANCE_LEVEL_LAB = {
+    1: (6, 6, 6),
+    2: (10, 10, 10),
+    3: (14, 14, 14),
+    4: (20, 20, 20),
+    5: (28, 28, 28),
+}
+DEFAULT_TOLERANCE_LEVEL = 3
+
 
 @dataclass
 class ColorProfile:
@@ -135,3 +160,16 @@ def list_saved_profiles(directory: Path | str = DEFAULT_PROFILES_DIR) -> list[Pa
     if not directory.exists():
         return []
     return sorted(directory.glob("*.json"))
+
+
+def lab_to_hex(l: float, a: float, b: float) -> str:
+    """Converte un punto CIE-LAB in una stringa colore esadecimale (per anteprime UI)."""
+    lab = np.uint8([[[np.clip(l, 0, 255), np.clip(a, 0, 255), np.clip(b, 0, 255)]]])
+    bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)[0][0]
+    rgb = bgr[::-1]
+    return "#%02x%02x%02x" % tuple(int(c) for c in rgb)
+
+
+def profile_hex_color(profile: ColorProfile) -> str:
+    """Colore medio del profilo come stringa esadecimale (per anteprime UI, es. una card semplice)."""
+    return lab_to_hex(*profile.mean_lab)

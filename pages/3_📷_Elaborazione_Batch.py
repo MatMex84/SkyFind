@@ -12,10 +12,38 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules import color_calibration as cc
 from modules import image_processing as ip
+from modules import ui
 
-st.set_page_config(page_title="Elaborazione Batch - SkyFind", page_icon="📷", layout="wide")
-st.title("📷 Elaborazione Batch")
-st.caption("Applica il profilo colore calibrato a un lotto di foto di missione ed estrae i target rilevati.")
+ui.inject_base_style()
+ui.sidebar_mission_status()
+ui.page_header(
+    "📷", "Elaborazione Batch",
+    "Applica il profilo colore calibrato a un lotto di foto di missione ed estrae i target rilevati.",
+    module=3,
+)
+
+DETECTION_MODE_LABELS = {
+    "hsv": "⚡ Standard (veloce)",
+    "lab": "🌤️ Robusto a ombre e controluce",
+    "both": "🎯 Massima precisione (più lento, meno falsi positivi)",
+}
+
+
+def _browse_folder() -> str:
+    """Apre il selettore cartelle nativo del sistema (l'app gira in locale sulla stessa macchina)."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(title="Seleziona la cartella con le foto di missione")
+        root.destroy()
+        return path
+    except Exception:
+        return ""
+
 
 saved_profiles = cc.list_saved_profiles()
 if not saved_profiles:
@@ -27,9 +55,15 @@ profile_paths = {p.stem: p for p in saved_profiles}
 profile_name = st.selectbox("Profilo da usare per il rilevamento", list(profile_paths.keys()))
 profile = cc.load_profile(profile_paths[profile_name])
 
-c1, c2 = st.columns(2)
-c1.caption(f"HSV medio: {profile.mean_hsv} · tolleranza {profile.tolerance_hsv}")
-c2.caption(f"LAB medio: {profile.mean_lab} · tolleranza {profile.tolerance_lab}")
+swatch_col, label_col = st.columns([1, 8])
+with swatch_col:
+    st.markdown(
+        f'<div style="background-color:{cc.profile_hex_color(profile)};height:36px;border-radius:6px;'
+        f'border:1px solid rgba(255,255,255,0.15);"></div>',
+        unsafe_allow_html=True,
+    )
+with label_col:
+    st.caption(f"Colore target del profilo **{profile_name}**")
 
 st.subheader("2. Sorgente immagini")
 st.info(
@@ -40,7 +74,23 @@ source_mode = st.radio("Sorgente", ["Cartella locale (consigliato)", "Carica fil
 
 image_paths: list[Path] = []
 if source_mode.startswith("Cartella"):
-    folder = st.text_input("Percorso cartella con le foto di missione", value="")
+    if "sf_batch_folder" not in st.session_state:
+        st.session_state["sf_batch_folder"] = ""
+
+    col_path, col_browse = st.columns([5, 1])
+    with col_browse:
+        st.markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
+        if st.button("📂 Sfoglia..."):
+            picked = _browse_folder()
+            if picked:
+                st.session_state["sf_batch_folder"] = picked
+                st.rerun()
+    with col_path:
+        folder = st.text_input(
+            "Percorso cartella con le foto di missione", key="sf_batch_folder",
+            help="Clicca \"Sfoglia...\" per aprire la finestra di selezione cartella, oppure incolla il percorso.",
+        )
+
     if folder:
         try:
             image_paths = ip.list_images(folder)
@@ -61,20 +111,30 @@ else:
             image_paths.append(dest)
         st.success(f"{len(image_paths)} foto caricate.")
 
-st.subheader("3. Parametri di rilevamento")
-c1, c2, c3 = st.columns(3)
+st.subheader("3. Modalità di rilevamento")
+c1, c2 = st.columns(2)
 with c1:
-    color_space = st.selectbox("Spazio colore per la maschera", ["hsv", "lab", "both"], help="'both' = HSV AND LAB, più selettivo (meno falsi positivi)")
-    require_gps = st.checkbox("Scarta foto senza GPS", value=False)
+    detection_mode = st.select_slider(
+        "Come cercare il colore nelle foto?",
+        options=["hsv", "lab", "both"],
+        value="hsv",
+        format_func=lambda v: DETECTION_MODE_LABELS[v],
+    )
 with c2:
-    downscale_max_dim = st.slider("Lato max per rilevamento veloce (px)", 800, 3000, 1600, step=100)
-    min_area_px = st.number_input("Area minima target (px², a piena risoluzione)", min_value=10, value=400, step=10)
-with c3:
-    morph_kernel = st.slider("Kernel pulizia morfologica (px)", 3, 25, 5, step=2)
-    max_detections = st.slider("Max rilevamenti per foto", 1, 20, 8)
+    require_gps = st.checkbox("Scarta foto senza posizione GPS", value=False)
+    st.caption("Utile se vuoi solo target georiferiti sulla mappa nel report finale.")
 
-max_workers_default = min(8, os.cpu_count() or 4)
-max_workers = st.slider("Worker paralleli (thread)", 1, max(1, os.cpu_count() or 4), max_workers_default)
+with st.expander("⚙️ Impostazioni avanzate (valori di default già ottimizzati)"):
+    a1, a2, a3 = st.columns(3)
+    with a1:
+        downscale_max_dim = st.slider("Lato max per rilevamento veloce (px)", 800, 3000, 1600, step=100)
+        min_area_px = st.number_input("Area minima target (px², a piena risoluzione)", min_value=10, value=400, step=10)
+    with a2:
+        morph_kernel = st.slider("Pulizia forma rilevamento (px)", 3, 25, 5, step=2)
+        max_detections = st.slider("Max rilevamenti per foto", 1, 20, 8)
+    with a3:
+        max_workers_default = min(8, os.cpu_count() or 4)
+        max_workers = st.slider("Foto elaborate in parallelo", 1, max(1, os.cpu_count() or 4), max_workers_default)
 
 st.subheader("4. Avvia elaborazione")
 if not image_paths:
@@ -83,7 +143,7 @@ if not image_paths:
 
 if st.button("▶️ Avvia elaborazione batch", type="primary"):
     config = ip.ProcessingConfig(
-        color_space=color_space,
+        color_space=detection_mode,
         downscale_max_dim=downscale_max_dim,
         min_area_px_fullres=int(min_area_px),
         morph_kernel=morph_kernel,
