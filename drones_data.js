@@ -1,0 +1,323 @@
+const DRONES = [
+  {
+    "id": "mavic3e_wide",
+    "drone": "DJI Mavic 3 Enterprise (M3E)",
+    "sensore": "Camera grandangolare RGB",
+    "sensor_width_mm": 17.3,
+    "sensor_height_mm": 13.0,
+    "image_width_px": 5280,
+    "image_height_px": 3956,
+    "focal_length_mm": 12.29,
+    "note": "CONFERMATO (EXIF corroborati). Sensore 4/3\" CMOS 20MP, equiv. 24mm."
+  },
+  {
+    "id": "mavic3e_tele",
+    "drone": "DJI Mavic 3 Enterprise (M3E)",
+    "sensore": "Camera tele/zoom RGB",
+    "sensor_width_mm": 6.4,
+    "sensor_height_mm": 4.8,
+    "image_width_px": 4000,
+    "image_height_px": 3000,
+    "focal_length_mm": 30.0,
+    "note": "STIMATO da crop factor. Sensore 1/2\" CMOS 12MP, equiv. 162mm."
+  },
+  {
+    "id": "mavic3t_wide",
+    "drone": "DJI Mavic 3T (Thermal)",
+    "sensore": "Camera grandangolare RGB",
+    "sensor_width_mm": 6.4,
+    "sensor_height_mm": 4.8,
+    "image_width_px": 8000,
+    "image_height_px": 6000,
+    "focal_length_mm": 4.44,
+    "note": "STIMATO da crop factor. Sensore 1/2\" CMOS 48MP, equiv. 24mm."
+  },
+  {
+    "id": "mavic3t_tele",
+    "drone": "DJI Mavic 3T (Thermal)",
+    "sensore": "Camera tele/zoom RGB",
+    "sensor_width_mm": 6.4,
+    "sensor_height_mm": 4.8,
+    "image_width_px": 4000,
+    "image_height_px": 3000,
+    "focal_length_mm": 30.0,
+    "note": "STIMATO da crop factor (stessa camera della M3E). Sensore 1/2\" CMOS 12MP, equiv. 162mm."
+  },
+  {
+    "id": "mavic3t_thermal",
+    "drone": "DJI Mavic 3T (Thermal)",
+    "sensore": "Camera termica",
+    "sensor_width_mm": 7.68,
+    "sensor_height_mm": 6.144,
+    "image_width_px": 640,
+    "image_height_px": 512,
+    "focal_length_mm": 9.09,
+    "note": "STIMATO da crop factor, validato incrociando col Matrice 30T. Equiv. 40mm. Non adatta al filtraggio cromatico."
+  },
+  {
+    "id": "m300350400_p1_24mm",
+    "drone": "Matrice 300/350/400 RTK + Zenmuse P1",
+    "sensore": "Fotogrammetria full-frame (obiettivo 24mm)",
+    "sensor_width_mm": 35.9,
+    "sensor_height_mm": 24.0,
+    "image_width_px": 8192,
+    "image_height_px": 5460,
+    "focal_length_mm": 24.0,
+    "note": "CONFERMATO (manuale ufficiale). Sensore full-frame 45MP. Ottimo per coperture rapide ad alta quota."
+  },
+  {
+    "id": "m300350400_p1_35mm",
+    "drone": "Matrice 300/350/400 RTK + Zenmuse P1",
+    "sensore": "Fotogrammetria full-frame (obiettivo 35mm)",
+    "sensor_width_mm": 35.9,
+    "sensor_height_mm": 24.0,
+    "image_width_px": 8192,
+    "image_height_px": 5460,
+    "focal_length_mm": 35.0,
+    "note": "CONFERMATO (manuale ufficiale). Sensore full-frame 45MP. Buon compromesso quota/dettaglio."
+  },
+  {
+    "id": "m300350400_p1_50mm",
+    "drone": "Matrice 300/350/400 RTK + Zenmuse P1",
+    "sensore": "Fotogrammetria full-frame (obiettivo 50mm)",
+    "sensor_width_mm": 35.9,
+    "sensor_height_mm": 24.0,
+    "image_width_px": 8192,
+    "image_height_px": 5460,
+    "focal_length_mm": 50.0,
+    "note": "CONFERMATO (manuale ufficiale). Sensore full-frame 45MP. GSD fine anche a quote piu' alte, FOV ridotto."
+  },
+  {
+    "id": "m300350_h20_wide",
+    "drone": "Matrice 300/350 RTK + Zenmuse H20/H20T",
+    "sensore": "Camera grandangolare RGB",
+    "sensor_width_mm": 6.17,
+    "sensor_height_mm": 4.55,
+    "image_width_px": 4056,
+    "image_height_px": 3040,
+    "focal_length_mm": 4.5,
+    "note": "CONFERMATO (specifiche ufficiali). Sensore 1/2.3\" CMOS 12MP, equiv. 24mm. Non compatibile con Matrice 400."
+  },
+  {
+    "id": "m300350_h20_zoom",
+    "drone": "Matrice 300/350 RTK + Zenmuse H20/H20T",
+    "sensore": "Camera zoom RGB",
+    "sensor_width_mm": 7.6,
+    "sensor_height_mm": 5.7,
+    "image_width_px": 5184,
+    "image_height_px": 3888,
+    "focal_length_mm": 6.83,
+    "note": "CONFERMATO (specifiche ufficiali). Sensore 1/1.7\" CMOS 20MP, zoom ottico 6.83-119.94mm (usare focale minima per FOV massimo). Non compatibile con Matrice 400."
+  },
+  {
+    "id": "m300350_h20t_thermal",
+    "drone": "Matrice 300/350 RTK + Zenmuse H20T",
+    "sensore": "Camera termica",
+    "sensor_width_mm": 7.68,
+    "sensor_height_mm": 6.144,
+    "image_width_px": 640,
+    "image_height_px": 512,
+    "focal_length_mm": 13.5,
+    "note": "Focale CONFERMATA (specifiche ufficiali), sensore stimato per coerenza (pattern comune camere termiche DJI). Equiv. 58mm. Non compatibile con Matrice 400. Non adatta al filtraggio cromatico."
+  },
+  {
+    "id": "m300350400_h30_wide",
+    "drone": "Matrice 300/350/400 RTK + Zenmuse H30/H30T",
+    "sensore": "Camera grandangolare RGB",
+    "sensor_width_mm": 9.6,
+    "sensor_height_mm": 7.2,
+    "image_width_px": 8064,
+    "image_height_px": 6048,
+    "focal_length_mm": 6.72,
+    "note": "CONFERMATO (specifiche ufficiali). Sensore 1/1.3\" CMOS 48MP, equiv. 24mm. Su Matrice 300 richiede radiocomando DJI RC Plus."
+  },
+  {
+    "id": "m300350400_h30_zoom",
+    "drone": "Matrice 300/350/400 RTK + Zenmuse H30/H30T",
+    "sensore": "Camera zoom RGB",
+    "sensor_width_mm": 7.18,
+    "sensor_height_mm": 5.32,
+    "image_width_px": 7328,
+    "image_height_px": 5496,
+    "focal_length_mm": 7.1,
+    "note": "Focale CONFERMATA (specifiche ufficiali), sensore stimato dal formato 1/1.8\". Zoom ottico 7.1-172mm (usare focale minima per FOV massimo). Equiv. 33.4mm."
+  },
+  {
+    "id": "m30_wide",
+    "drone": "DJI Matrice 30/30T",
+    "sensore": "Camera grandangolare RGB",
+    "sensor_width_mm": 6.4,
+    "sensor_height_mm": 4.8,
+    "image_width_px": 4000,
+    "image_height_px": 3000,
+    "focal_length_mm": 4.5,
+    "note": "CONFERMATO (specifiche ufficiali). Sensore 1/2\" CMOS 12MP, equiv. 24mm."
+  },
+  {
+    "id": "m30_zoom",
+    "drone": "DJI Matrice 30/30T",
+    "sensore": "Camera zoom RGB",
+    "sensor_width_mm": 6.4,
+    "sensor_height_mm": 4.8,
+    "image_width_px": 8000,
+    "image_height_px": 6000,
+    "focal_length_mm": 21.0,
+    "note": "CONFERMATO (specifiche ufficiali). Sensore 1/2\" CMOS 48MP, zoom ottico 21-75mm (usare focale minima per FOV massimo)."
+  },
+  {
+    "id": "m30t_thermal",
+    "drone": "DJI Matrice 30T",
+    "sensore": "Camera termica",
+    "sensor_width_mm": 7.68,
+    "sensor_height_mm": 6.144,
+    "image_width_px": 640,
+    "image_height_px": 512,
+    "focal_length_mm": 9.1,
+    "note": "CONFERMATO (specifiche ufficiali, pixel pitch 12µm). Equiv. 40mm. Non adatta al filtraggio cromatico."
+  },
+  {
+    "id": "m4e_wide",
+    "drone": "DJI Matrice 4E",
+    "sensore": "Camera grandangolare RGB",
+    "sensor_width_mm": 17.3,
+    "sensor_height_mm": 13.0,
+    "image_width_px": 5280,
+    "image_height_px": 3956,
+    "focal_length_mm": 12.3,
+    "note": "STIMATO da crop factor, validato incrociando con Mavic 3E (praticamente identica). Sensore 4/3\" CMOS 20MP, equiv. 24mm."
+  },
+  {
+    "id": "m4e_midtele",
+    "drone": "DJI Matrice 4E",
+    "sensore": "Camera tele media RGB",
+    "sensor_width_mm": 9.6,
+    "sensor_height_mm": 7.2,
+    "image_width_px": 8064,
+    "image_height_px": 6048,
+    "focal_length_mm": 19.4,
+    "note": "STIMATO da crop factor. Sensore 1/1.3\" CMOS 48MP, equiv. 70mm."
+  },
+  {
+    "id": "m4e_tele",
+    "drone": "DJI Matrice 4E",
+    "sensore": "Camera tele RGB",
+    "sensor_width_mm": 8.3,
+    "sensor_height_mm": 6.2,
+    "image_width_px": 8192,
+    "image_height_px": 6144,
+    "focal_length_mm": 40.2,
+    "note": "STIMATO da crop factor. Sensore 1/1.5\" CMOS 48MP, equiv. 168mm."
+  },
+  {
+    "id": "m4t_wide",
+    "drone": "DJI Matrice 4T / 4TD",
+    "sensore": "Camera grandangolare RGB",
+    "sensor_width_mm": 9.6,
+    "sensor_height_mm": 7.2,
+    "image_width_px": 8064,
+    "image_height_px": 6048,
+    "focal_length_mm": 6.7,
+    "note": "STIMATO da crop factor, validato incrociando con Mini 4 Pro (stesso sensore). Sensore 1/1.3\" CMOS 48MP, equiv. 24mm. 4TD: stessa fotocamera del 4T in versione irrobustita per DJI Dock."
+  },
+  {
+    "id": "m4t_midtele",
+    "drone": "DJI Matrice 4T / 4TD",
+    "sensore": "Camera tele media RGB",
+    "sensor_width_mm": 9.6,
+    "sensor_height_mm": 7.2,
+    "image_width_px": 8064,
+    "image_height_px": 6048,
+    "focal_length_mm": 19.4,
+    "note": "STIMATO da crop factor. Sensore 1/1.3\" CMOS 48MP, equiv. 70mm."
+  },
+  {
+    "id": "m4t_tele",
+    "drone": "DJI Matrice 4T / 4TD",
+    "sensore": "Camera tele RGB",
+    "sensor_width_mm": 8.3,
+    "sensor_height_mm": 6.2,
+    "image_width_px": 8192,
+    "image_height_px": 6144,
+    "focal_length_mm": 40.2,
+    "note": "STIMATO da crop factor. Sensore 1/1.5\" CMOS 48MP, equiv. 168mm."
+  },
+  {
+    "id": "m4t_thermal",
+    "drone": "DJI Matrice 4T / 4TD",
+    "sensore": "Camera termica",
+    "sensor_width_mm": 7.68,
+    "sensor_height_mm": 6.144,
+    "image_width_px": 640,
+    "image_height_px": 512,
+    "focal_length_mm": 12.05,
+    "note": "STIMATO da crop factor (pixel pitch 12µm confermato). Equiv. 53mm, risoluzione nativa (esiste anche una modalita' 1280x1024 interpolata, da non usare per il GSD). Non adatta al filtraggio cromatico."
+  },
+  {
+    "id": "mavic4pro_wide",
+    "drone": "DJI Mavic 4 Pro",
+    "sensore": "Camera grandangolare RGB (Hasselblad)",
+    "sensor_width_mm": 17.4,
+    "sensor_height_mm": 13.0,
+    "image_width_px": 12288,
+    "image_height_px": 8192,
+    "focal_length_mm": 14.1,
+    "note": "Sensore CONFERMATO (specifiche ufficiali), focale stimata da crop factor. 4/3\" CMOS 100MP, equiv. 28mm."
+  },
+  {
+    "id": "mavic4pro_midtele",
+    "drone": "DJI Mavic 4 Pro",
+    "sensore": "Camera tele media RGB",
+    "sensor_width_mm": 10.0,
+    "sensor_height_mm": 7.5,
+    "image_width_px": 8064,
+    "image_height_px": 6048,
+    "focal_length_mm": 20.2,
+    "note": "Sensore CONFERMATO (specifiche ufficiali), focale stimata da crop factor. 1/1.3\" CMOS 48MP, equiv. 70mm."
+  },
+  {
+    "id": "mavic4pro_tele",
+    "drone": "DJI Mavic 4 Pro",
+    "sensore": "Camera tele RGB",
+    "sensor_width_mm": 8.3,
+    "sensor_height_mm": 6.2,
+    "image_width_px": 8192,
+    "image_height_px": 6144,
+    "focal_length_mm": 40.2,
+    "note": "Sensore CONFERMATO (specifiche ufficiali), focale stimata da crop factor. 1/1.5\" CMOS 50MP, equiv. 168mm."
+  },
+  {
+    "id": "mini4pro",
+    "drone": "DJI Mini 4 Pro",
+    "sensore": "Camera RGB",
+    "sensor_width_mm": 9.6,
+    "sensor_height_mm": 7.2,
+    "image_width_px": 8064,
+    "image_height_px": 6048,
+    "focal_length_mm": 6.66,
+    "note": "STIMATO da crop factor. Sensore 1/1.3\" CMOS 48MP, equiv. 24mm."
+  },
+  {
+    "id": "mini5pro",
+    "drone": "DJI Mini 5 Pro",
+    "sensore": "Camera RGB",
+    "sensor_width_mm": 13.2,
+    "sensor_height_mm": 8.8,
+    "image_width_px": 8192,
+    "image_height_px": 6144,
+    "focal_length_mm": 8.8,
+    "note": "STIMATO da crop factor. Sensore 1\" CMOS 50MP, equiv. 24mm."
+  },
+  {
+    "id": "custom",
+    "drone": "Altro / non in elenco (inserisci parametri manualmente)",
+    "sensore": "-",
+    "sensor_width_mm": null,
+    "sensor_height_mm": null,
+    "image_width_px": null,
+    "image_height_px": null,
+    "focal_length_mm": null,
+    "note": "Usa questa voce per modelli non presenti in elenco"
+  }
+];
+
+const DRONES_NOTE = "Larghezza sensore e lunghezza focale sono valori REALI (fisici), non equivalenti 35mm: servono cosi' per il calcolo del GSD. Ogni voce ha un campo 'note' che indica se i dati sono CONFERMATI da specifiche ufficiali DJI oppure STIMATI dal crop factor a partire dalla focale equivalente dichiarata da DJI (quando il dato reale non e' pubblicato). Le voci stimate vanno idealmente verificate con i metadati EXIF di foto reali scattate con quel drone. Le camere termiche non sono adatte all'uso con il filtraggio cromatico di SkyFind (pensato per immagini RGB): sono incluse solo per la pianificazione di missione.";
