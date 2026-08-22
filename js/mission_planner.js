@@ -210,13 +210,28 @@ window.SF = window.SF || {};
     });
   }
 
+  // SkyFind individua i target dal COLORE: le camere zoom/tele e termiche non servono a
+  // questo scopo (le termiche non hanno colore RGB, le zoom/tele sono la stessa fotocamera
+  // "wide" della stessa piattaforma solo con un FOV più stretto, irrilevante per il calcolo
+  // del GSD/quota che qui interessa) — nel Mission Planner mostriamo quindi solo le camere
+  // grandangolari RGB (più le camere fisse del Zenmuse P1, che non hanno una variante wide
+  // separata, e "Altro/personalizzato").
+  function isRelevantForPlanner(d) {
+    if (d.id === 'custom') return true;
+    return !/termic|zoom|tele/i.test(d.sensore);
+  }
+
   function buildOnce() {
     const container = document.getElementById('mp-content');
     if (!container) return;
-    const options = DRONES.map((d) => `<option value="${d.id}">${SF.escapeHtml(d.drone)} — ${SF.escapeHtml(d.sensore)}</option>`).join('');
+    const options = DRONES.filter(isRelevantForPlanner)
+      .map((d) => `<option value="${d.id}">${SF.escapeHtml(d.drone)} — ${SF.escapeHtml(d.sensore)}</option>`)
+      .join('');
     container.innerHTML = `
       <label class="sf-label">Drone e camera in uso</label>
       <select id="mp-drone-select">${options}</select>
+      <p class="sf-caption">Mostriamo solo le camere grandangolari RGB: SkyFind individua i target dal colore, quindi
+        le varianti zoom/tele (stesso calcolo, FOV diverso) e le camere termiche non sono elencate qui.</p>
       <div id="mp-custom-fields" style="margin-top:0.9rem;"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
       <div id="mp-results"></div>
