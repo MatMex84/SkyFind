@@ -8,7 +8,7 @@ window.SF = window.SF || {};
 (function () {
   'use strict';
 
-  const st = { built: false, minConfidence: 0, cropUrls: new Map(), browseIdx: 0, viewMode: 'photo', dedupRadiusM: 7 };
+  const st = { built: false, minConfidence: 0, cropUrls: new Map(), browseIdx: 0, viewMode: 'photo', dedupRadiusM: 7, filterExports: false };
   const fileUrlCache = new WeakMap();
   let browseItems = []; // [{result, dets, file}], costruito all'apertura della modalita' Sfoglia
 
@@ -489,14 +489,34 @@ window.SF = window.SF || {};
     container.innerHTML = `
       <p class="sf-caption">Profilo colore usato: <strong>${SF.escapeHtml(profileName)}</strong> — ${results.length} foto analizzate,
         ${totalDetections} target individuati.</p>
-      <label class="sf-label">Confidenza minima da mostrare (%)</label>
-      <input type="range" id="report-confidence-slider" min="0" max="100" step="1" value="${st.minConfidence}">
-      <p class="sf-caption" id="report-confidence-value">${st.minConfidence}%</p>
-      <p class="sf-caption">La confidenza misura quanto il colore <em>medio di tutta l'area rilevata</em> è vicino al
-        colore campionato — non solo del punto esatto in cui hai fatto il contagocce. Su un indumento vero (pieghe,
-        ombre, texture del tessuto) è normale che sia ben sotto il 100% anche quando il rilevamento è corretto:
-        non alzare troppo la soglia sopra, o rischi di nascondere target reali.</p>
+      <p class="sf-caption">Ogni rilevamento ha un <strong>punteggio</strong> (0-100%) che misura quanto il colore
+        <em>medio di tutta l'area rilevata</em> assomiglia al colore campionato — più alto è, più il rilevamento parte
+        in cima alla lista da controllare. <strong>Non è un verdetto "vero/falso positivo":</strong> un punteggio basso
+        può comunque essere un target reale, coperto da un'ombra, con luce diversa o tessuto sporco/bagnato — la
+        differenza la fa solo l'occhio di chi rivede la foto. Per questo qui sotto vedi <em>tutti</em> i rilevamenti,
+        dal più al meno probabile: nessuno viene nascosto o escluso dall'export a meno che tu non lo decida
+        esplicitamente nelle impostazioni avanzate.</p>
       <div id="report-metrics"></div>
+
+      <details id="report-advanced-settings" style="margin: 0.8rem 0;">
+        <summary style="cursor:pointer; color:var(--muted);">⚙️ Impostazioni avanzate: filtro per punteggio</summary>
+        <div style="padding: 0.8rem 0 0.2rem;">
+          <label class="sf-label">Punteggio minimo da mostrare a schermo (%)</label>
+          <input type="range" id="report-confidence-slider" min="0" max="100" step="1" value="${st.minConfidence}">
+          <p class="sf-caption" id="report-confidence-value">${st.minConfidence}%</p>
+          <p class="sf-caption">Restringe solo la lista mostrata qui sotto (schede, Sfoglia, lightbox) per concentrarti
+            sui rilevamenti più probabili durante la revisione — riportalo a 0 in qualsiasi momento per rivedere tutto.
+            <strong>Non cancella nulla</strong>: i rilevamenti sotto soglia restano nei dati e, per default, restano
+            anche nell'export sotto.</p>
+          <label class="sf-caption" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+            <input type="checkbox" id="report-filter-exports-checkbox" ${st.filterExports ? 'checked' : ''}>
+            Applica questa soglia anche all'export CSV/HTML (esclude i rilevamenti sotto soglia dal file scaricato)
+          </label>
+          <p class="sf-caption" style="color:var(--accent-warm, #e0a030);">⚠️ Attiva questa casella solo se vuoi
+            consapevolmente escludere dei rilevamenti dal report finale (es. per condividere solo i più probabili):
+            un target reale con punteggio basso, se questa casella è attiva, non comparirà nel file esportato.</p>
+        </div>
+      </details>
       <div style="margin: 0.8rem 0 0.4rem;">
         <button class="sf-btn primary" id="report-browse-btn">🖼️ Sfoglia foto in sequenza</button>
         <span class="sf-caption" style="margin-left:0.6rem;">Vista a schermo intero, foto per foto, con frecce ← →.</span>
@@ -543,23 +563,29 @@ window.SF = window.SF || {};
       st.dedupRadiusM = Number.isFinite(v) && v > 0 ? v : 7;
       if (st.viewMode === 'target') renderFiltered();
     });
+    document.getElementById('report-filter-exports-checkbox').addEventListener('change', (e) => {
+      st.filterExports = e.target.checked;
+      renderFiltered(); // aggiorna la nota sotto i pulsanti di export
+    });
     document.getElementById('report-export-html').addEventListener('click', () => {
+      const exportThreshold = getExportThreshold();
       if (st.viewMode === 'target') {
-        const { withGeo, withoutGeo } = gatherGeoreferencedItems(st.minConfidence);
+        const { withGeo, withoutGeo } = gatherGeoreferencedItems(exportThreshold);
         const clusters = clusterDetectionsByGps(withGeo, st.dedupRadiusM);
-        downloadBlob(buildHtmlReportByTarget(clusters, withoutGeo, profileName, st.minConfidence), 'skyfind_report_target.html', 'text/html');
+        downloadBlob(buildHtmlReportByTarget(clusters, withoutGeo, profileName, exportThreshold), 'skyfind_report_target.html', 'text/html');
       } else {
-        const filtered = getFiltered();
-        downloadBlob(buildHtmlReport(filtered, profileName, st.minConfidence), 'skyfind_report.html', 'text/html');
+        const filtered = getFilteredWithThreshold(exportThreshold);
+        downloadBlob(buildHtmlReport(filtered, profileName, exportThreshold), 'skyfind_report.html', 'text/html');
       }
     });
     document.getElementById('report-export-csv').addEventListener('click', () => {
+      const exportThreshold = getExportThreshold();
       if (st.viewMode === 'target') {
-        const { withGeo, withoutGeo } = gatherGeoreferencedItems(st.minConfidence);
+        const { withGeo, withoutGeo } = gatherGeoreferencedItems(exportThreshold);
         const clusters = clusterDetectionsByGps(withGeo, st.dedupRadiusM);
         downloadBlob(buildCsvReportByTarget(clusters, withoutGeo), 'skyfind_target_unici.csv', 'text/csv');
       } else {
-        downloadBlob(buildCsvReport(results, st.minConfidence), 'skyfind_detections.csv', 'text/csv');
+        downloadBlob(buildCsvReport(results, exportThreshold), 'skyfind_detections.csv', 'text/csv');
       }
     });
     document.getElementById('report-browse-btn').addEventListener('click', () => openBrowse(0));
@@ -567,21 +593,39 @@ window.SF = window.SF || {};
     renderFiltered();
   }
 
-  function getFiltered() {
+  /** Elenco foto+detection con punteggio >= soglia, ordinato per punteggio massimo decrescente
+   *  (punto 4: si parte sempre dai match più probabili). Soglia esplicita, non implicita da `st`,
+   *  così la vista a schermo e l'export possono usarne una diversa — vedi getFiltered()/export. */
+  function getFilteredWithThreshold(threshold) {
     const results = SF.state.batchResults;
     return results
-      .map((r) => [r, (r.detections || []).filter((d) => d.confidence >= st.minConfidence)])
+      .map((r) => [r, (r.detections || []).filter((d) => d.confidence >= threshold)])
       .filter(([, dets]) => dets.length)
       .sort((a, b) => Math.max(...b[1].map((d) => d.confidence)) - Math.max(...a[1].map((d) => d.confidence)));
+  }
+
+  /** Vista a schermo (schede, Sfoglia, lightbox): rispetta la soglia scelta nelle impostazioni
+   *  avanzate — vedi getExportThreshold() per la soglia usata invece nell'export. */
+  function getFiltered() {
+    return getFilteredWithThreshold(st.minConfidence);
+  }
+
+  /** Soglia usata per l'EXPORT: per default sempre 0 (tutti i rilevamenti), indipendentemente da
+   *  quanto è stato ristretto lo sguardo a schermo — a meno che l'utente non abbia esplicitamente
+   *  spuntato "applica anche all'export" nelle impostazioni avanzate (punto 4: mai perdere target
+   *  reali solo perché il punteggio è basso, senza una scelta consapevole di chi rivede le foto). */
+  function getExportThreshold() {
+    return st.filterExports ? st.minConfidence : 0;
   }
 
   function renderFiltered() {
     const note = document.getElementById('report-export-note');
     if (note) {
-      note.textContent =
-        st.viewMode === 'target'
-          ? "Export in modalità 'Target unici': un CSV/HTML per target, con l'elenco delle foto in cui compare."
-          : '';
+      const viewNote = st.viewMode === 'target' ? "Vista 'Target unici': un CSV/HTML per target, con l'elenco delle foto in cui compare. " : '';
+      const exportNote = st.filterExports
+        ? `⚠️ L'export esclude i rilevamenti sotto ${st.minConfidence}% (impostazione avanzata attiva).`
+        : "L'export include SEMPRE tutti i rilevamenti, anche quelli nascosti qui sopra dal filtro a schermo.";
+      note.textContent = viewNote + exportNote;
     }
     if (st.viewMode === 'target') renderTargetView();
     else renderPhotoView();

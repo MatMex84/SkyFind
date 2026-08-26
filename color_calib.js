@@ -169,25 +169,46 @@ function buildMask(cv, mat, profile, colorSpace, kernelSize) {
   return mask;
 }
 
-/** Percentuale di match cromatico: 100% = colore medio del profilo, 0% = al limite della tolleranza. */
+/**
+ * Punteggio continuo di somiglianza cromatica (punto 4 della roadmap), non più una distanza
+ * euclidea normalizzata sulla stessa scala per tutti i canali, ma una distanza di Mahalanobis a
+ * covarianza diagonale: ogni canale LAB è pesato per la propria "sigma" effettiva, così un canale
+ * più variabile nei campioni raccolti (tipicamente la luminosità, se il target è stato campionato
+ * sia in luce che in ombra) pesa meno nel punteggio di un canale stabile — invece che tutti allo
+ * stesso modo come nella vecchia normalizzazione isotropa.
+ *
+ * La "sigma" per canale è la tolleranza adattiva già calcolata per il profilo (vedi
+ * computeProfileFromSamples sopra), riportata a deviazione standard dividendo per ADAPTIVE_K —
+ * la stessa conversione usata al contrario per andare da std osservata a tolleranza, quindi con
+ * lo stesso floor (un solo campione => tolleranza di base, mai zero: nessuna divisione per zero)
+ * e lo stesso tetto già in vigore altrove nel profilo.
+ *
+ * Il punteggio è 100·exp(-d²/2), la stessa forma di una gaussiana multivariata: 100% a distanza
+ * zero (colore medio esatto del profilo), ~61% a 1 sigma, ~14% a 2 sigma, <2% a 3 sigma — un
+ * andamento continuo e statisticamente motivato, non un taglio netto dentro/fuori soglia.
+ *
+ * IMPORTANTE (vedi anche il Report): questo è un punteggio di RANKING — quanto un rilevamento
+ * somiglia al profilo, in relazione agli altri — non un verdetto "vero/falso positivo". Un
+ * punteggio basso può comunque essere un target reale (luce diversa, ombra, tessuto sporco o
+ * bagnato): va sempre verificato a video, mai scartato solo perché il numero è basso.
+ */
 function colorConfidence(cv, regionLabMat, maskMat, profile) {
   const rows = regionLabMat.rows, cols = regionLabMat.cols;
   const labData = regionLabMat.data; // Uint8, 3 canali (RGB2Lab -> CV_8UC3)
   const maskData = maskMat.data;
   const [ml, ma, mb] = profile.mean_lab;
-  let sumDelta = 0, n = 0;
+  const [sl, sa, sb] = profile.tolerance_lab.map((t) => Math.max(t / ADAPTIVE_K, 1e-6));
+  let sumD2 = 0, n = 0;
   for (let i = 0; i < rows * cols; i++) {
     if (maskData[i] > 0) {
       const l = labData[i * 3], a = labData[i * 3 + 1], b = labData[i * 3 + 2];
-      const dl = l - ml, da = a - ma, db = b - mb;
-      sumDelta += Math.sqrt(dl * dl + da * da + db * db);
+      const dl = (l - ml) / sl, da = (a - ma) / sa, db = (b - mb) / sb;
+      sumD2 += dl * dl + da * da + db * db;
       n++;
     }
   }
   if (n === 0) return 0;
-  const meanDelta = sumDelta / n;
-  const [tl, ta, tb] = profile.tolerance_lab;
-  const maxTol = Math.sqrt(tl * tl + ta * ta + tb * tb) || 1;
-  const confidence = 100 * (1 - meanDelta / maxTol);
+  const meanD2 = sumD2 / n;
+  const confidence = 100 * Math.exp(-meanD2 / 2);
   return Math.max(0, Math.min(100, confidence));
 }
