@@ -12,6 +12,18 @@ window.SF = window.SF || {};
   const DISPLAY_WIDTH = 640;
   const MIN_ZOOM = 1, MAX_ZOOM = 6;
 
+  // Scorciatoie per la modalita' Palette: colori tipici dell'equipaggiamento SAR (indumenti/gilet
+  // ad alta visibilita', zaini, teli), per chi non ha una foto di riferimento a portata di mano e
+  // non conosce colori/fotografia — un click imposta il colore esatto, restando comunque modificabile
+  // col selettore sotto. Volutamente NESSUN bianco/nero: su foto aeree confondono con neve, cemento,
+  // rocce e ombre, causando troppi falsi positivi — meglio partire da un campione reale in quel caso.
+  const PRESET_COLORS = [
+    { label: 'Arancione alta visibilità', hex: '#FF6A00', desc: 'Giacche e gilet ad alta visibilità arancione fluo' },
+    { label: 'Giallo-verde alta visibilità', hex: '#D7FF00', desc: 'Gilet catarifrangenti giallo-verde fluo' },
+    { label: 'Rosso', hex: '#E2231A', desc: 'Giacche a vento, piumini, zaini rossi' },
+    { label: 'Blu', hex: '#1B4F9C', desc: 'Zaini e giacche outdoor blu' },
+  ];
+
   const st = {
     built: false,
     mode: 'photo', // 'photo' | 'palette'
@@ -524,6 +536,12 @@ window.SF = window.SF || {};
       await computeAndRenderProfile();
     }
     hexInput.addEventListener('input', update);
+    document.querySelectorAll('#calib-preset-row .calib-preset-chip').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        hexInput.value = btn.dataset.hex;
+        hexInput.dispatchEvent(new Event('input')); // riusa update(): stessa logica di un colore scelto a mano
+      });
+    });
     update();
   }
 
@@ -556,7 +574,19 @@ window.SF = window.SF || {};
       });
     } else {
       body.innerHTML = `
-        <label class="sf-label">Scegli il colore del target</label>
+        <label class="sf-label">Colori tipici SAR (opzionale — un click imposta il colore, poi puoi affinarlo)</label>
+        <div id="calib-preset-row" style="display:flex; flex-wrap:wrap; gap:0.5rem; margin: 0.4rem 0 1rem;">
+          ${PRESET_COLORS.map(
+            (p) => `
+            <button type="button" class="calib-preset-chip" data-hex="${p.hex}" title="${SF.escapeHtml(p.desc)}"
+              style="display:flex; align-items:center; gap:0.4rem; padding:0.35rem 0.6rem; border-radius:999px;
+              border:1px solid var(--border); background:var(--panel); color:var(--text); cursor:pointer; font-size:0.85rem;">
+              <span style="display:inline-block; width:14px; height:14px; border-radius:50%; background:${p.hex};
+                border:1px solid rgba(255,255,255,0.25);"></span>${SF.escapeHtml(p.label)}
+            </button>`
+          ).join('')}
+        </div>
+        <label class="sf-label">Oppure scegli un colore personalizzato</label>
         <input type="color" id="calib-palette-color" value="#c82828" style="width:120px; height:44px; padding:2px; cursor:pointer;">
       `;
       setupPaletteMode();
