@@ -610,6 +610,123 @@ window.SF = window.SF || {};
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  // ------------------------------------------------------------- export KML / GeoJSON (punto 7)
+  /**
+   * KML e GeoJSON, punto 7 della roadmap: formati geografici standard per aprire i rilevamenti in
+   * software SIG/mappe (Google Earth, QGIS, ecc.), oltre a HTML/CSV già disponibili. A differenza
+   * di quei due, un formato geografico può rappresentare SOLO punti con una posizione: i
+   * rilevamenti senza posizione GPS del target calcolabile (nessuna camera/quota configurata in
+   * Elaborazione Batch, o EXIF mancante) non possono comparire su una mappa — non è una scelta di
+   * filtro come nel punto 4, è un limite intrinseco del formato. Per questo l'export segnala
+   * sempre quanti rilevamenti sono stati esclusi per questo motivo (mai in silenzio): quei
+   * rilevamenti restano comunque presenti in HTML e CSV, che non richiedono una posizione.
+   */
+  function xmlEscape(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+  function cdataEscape(s) {
+    // "]]>" chiuderebbe prematuramente il blocco CDATA: caso limite improbabile nei nostri dati
+    // (nomi foto, avvisi) ma va comunque gestito per non generare un KML non valido.
+    return String(s).replace(/]]>/g, ']]]]><![CDATA[>');
+  }
+  function kmlPlacemark(name, lat, lon, descriptionHtml) {
+    return (
+      `<Placemark><name>${xmlEscape(name)}</name><description><![CDATA[${cdataEscape(descriptionHtml)}]]></description>` +
+      `<Point><coordinates>${lon},${lat},0</coordinates></Point></Placemark>`
+    );
+  }
+  function wrapKml(docName, placemarks) {
+    return (
+      `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
+      `<name>${xmlEscape(docName)}</name>${placemarks.join('')}</Document></kml>`
+    );
+  }
+
+  /** Un placemark per rilevamento georiferito (vista "Per foto"). `excluded` = quanti esclusi
+   *  perché senza posizione GPS del target (vedi commento sopra). */
+  function buildKmlReport(filtered) {
+    const placemarks = [];
+    let excluded = 0;
+    filtered.forEach(([r, dets]) => {
+      dets.forEach((d) => {
+        if (d.target_lat === null || d.target_lat === undefined) { excluded++; return; }
+        const desc =
+          `Foto: ${SF.escapeHtml(r.name)}<br>Confidenza: ${SF.formatNum(d.confidence)}%<br>` +
+          `Copertura area: ${SF.formatNum(d.fill_ratio)}%` + (d.geom_warning ? `<br>🔍 ${SF.escapeHtml(d.geom_warning)}` : '');
+        placemarks.push(kmlPlacemark(`${r.name} — ${SF.formatNum(d.confidence)}%`, d.target_lat, d.target_lon, desc));
+      });
+    });
+    return { kml: wrapKml('Rilevamenti SkyFind', placemarks), excluded };
+  }
+
+  /** Un placemark per target deduplicato (vista "Target unici"): tutti i cluster hanno già una
+   *  posizione per costruzione (clusterDetectionsByGps riceve solo item georiferiti), quindi qui
+   *  non c'è nulla da escludere — i rilevamenti senza GPS del tutto sono già conteggiati a parte
+   *  (withoutGeo) da chi chiama, come nella vista a schermo. */
+  function buildKmlReportByTarget(clusters) {
+    const placemarks = clusters.map((cl, i) => {
+      const items = cl.items;
+      const photoNames = [...new Set(items.map((it) => it.result.name))];
+      const confs = items.map((it) => it.det.confidence);
+      const confRange = items.length > 1 ? `${SF.formatNum(Math.min(...confs))}–${SF.formatNum(Math.max(...confs))}%` : `${SF.formatNum(confs[0])}%`;
+      const desc =
+        `Rilevamenti: ${items.length} in ${photoNames.length} foto<br>Foto: ${photoNames.map((n) => SF.escapeHtml(n)).join(', ')}<br>` +
+        `Confidenza: ${confRange}`;
+      return kmlPlacemark(`Target ${i + 1}`, cl.lat, cl.lon, desc);
+    });
+    return wrapKml('Target unici SkyFind', placemarks);
+  }
+
+  function buildGeoJsonReport(filtered) {
+    const features = [];
+    let excluded = 0;
+    filtered.forEach(([r, dets]) => {
+      dets.forEach((d) => {
+        if (d.target_lat === null || d.target_lat === undefined) { excluded++; return; }
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [d.target_lon, d.target_lat] },
+          properties: {
+            foto: r.name,
+            'confidenza_%': d.confidence,
+            'copertura_area_%': d.fill_ratio,
+            bbox_x: d.bbox[0], bbox_y: d.bbox[1], bbox_w: d.bbox[2], bbox_h: d.bbox[3],
+            avviso_forma: d.geom_warning || null,
+            data_ora: r.datetime_original || null,
+          },
+        });
+      });
+    });
+    return { geojson: JSON.stringify({ type: 'FeatureCollection', features }, null, 2), excluded };
+  }
+
+  function buildGeoJsonReportByTarget(clusters) {
+    const features = clusters.map((cl, i) => {
+      const items = cl.items;
+      const photoNames = [...new Set(items.map((it) => it.result.name))];
+      const confs = items.map((it) => it.det.confidence);
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [cl.lon, cl.lat] },
+        properties: {
+          target_id: i + 1,
+          n_rilevamenti: items.length,
+          n_foto: photoNames.length,
+          foto: photoNames,
+          'confidenza_max_%': Math.max(...confs),
+          'confidenza_min_%': Math.min(...confs),
+          avvisi_forma: [...new Set(items.map((it) => it.det.geom_warning).filter(Boolean))],
+        },
+      };
+    });
+    return JSON.stringify({ type: 'FeatureCollection', features }, null, 2);
+  }
+
   // ------------------------------------------------------------- render principale
   function render() {
     const container = document.getElementById('report-content');
@@ -687,11 +804,17 @@ window.SF = window.SF || {};
       <div id="report-cards"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
       <h2 class="sf-section">Esporta report</h2>
-      <div style="display:flex; gap:0.8rem;">
+      <div style="display:flex; gap:0.8rem; flex-wrap:wrap;">
         <button class="sf-btn" id="report-export-html">⬇️ Scarica report HTML</button>
         <button class="sf-btn" id="report-export-csv">⬇️ Scarica CSV rilevamenti</button>
+        <button class="sf-btn" id="report-export-kml">⬇️ Scarica KML</button>
+        <button class="sf-btn" id="report-export-geojson">⬇️ Scarica GeoJSON</button>
       </div>
       <p class="sf-caption" id="report-export-note"></p>
+      <p class="sf-caption">KML e GeoJSON (per Google Earth, QGIS e altri software di mappe) includono solo i
+        rilevamenti con posizione GPS del target calcolabile: un formato geografico può rappresentare solo punti
+        con una posizione — quelli senza restano comunque nell'HTML e nel CSV sopra.</p>
+      <p class="sf-caption" id="report-geo-export-note"></p>
     `;
 
     document.getElementById('report-confidence-slider').addEventListener('input', (e) => {
@@ -740,6 +863,36 @@ window.SF = window.SF || {};
         downloadBlob(buildCsvReport(results, exportThreshold), 'skyfind_detections.csv', 'text/csv');
       }
     });
+    document.getElementById('report-export-kml').addEventListener('click', () => {
+      const exportThreshold = getExportThreshold();
+      const geoNote = document.getElementById('report-geo-export-note');
+      if (st.viewMode === 'target') {
+        const { withGeo, withoutGeo } = gatherGeoreferencedItems(exportThreshold);
+        const clusters = clusterDetectionsByGps(withGeo, st.dedupRadiusM);
+        downloadBlob(buildKmlReportByTarget(clusters), 'skyfind_target_unici.kml', 'application/vnd.google-earth.kml+xml');
+        if (geoNote) geoNote.textContent = withoutGeo.length ? `⚠️ ${withoutGeo.length} rilevamento/i esclusi dal KML: nessuna posizione GPS del target calcolabile.` : '';
+      } else {
+        const filtered = getFilteredWithThreshold(exportThreshold);
+        const { kml, excluded } = buildKmlReport(filtered);
+        downloadBlob(kml, 'skyfind_report.kml', 'application/vnd.google-earth.kml+xml');
+        if (geoNote) geoNote.textContent = excluded ? `⚠️ ${excluded} rilevamento/i esclusi dal KML: nessuna posizione GPS del target calcolabile.` : '';
+      }
+    });
+    document.getElementById('report-export-geojson').addEventListener('click', () => {
+      const exportThreshold = getExportThreshold();
+      const geoNote = document.getElementById('report-geo-export-note');
+      if (st.viewMode === 'target') {
+        const { withGeo, withoutGeo } = gatherGeoreferencedItems(exportThreshold);
+        const clusters = clusterDetectionsByGps(withGeo, st.dedupRadiusM);
+        downloadBlob(buildGeoJsonReportByTarget(clusters), 'skyfind_target_unici.geojson', 'application/geo+json');
+        if (geoNote) geoNote.textContent = withoutGeo.length ? `⚠️ ${withoutGeo.length} rilevamento/i esclusi dal GeoJSON: nessuna posizione GPS del target calcolabile.` : '';
+      } else {
+        const filtered = getFilteredWithThreshold(exportThreshold);
+        const { geojson, excluded } = buildGeoJsonReport(filtered);
+        downloadBlob(geojson, 'skyfind_report.geojson', 'application/geo+json');
+        if (geoNote) geoNote.textContent = excluded ? `⚠️ ${excluded} rilevamento/i esclusi dal GeoJSON: nessuna posizione GPS del target calcolabile.` : '';
+      }
+    });
     document.getElementById('report-browse-btn').addEventListener('click', () => openBrowse(0));
 
     renderFiltered();
@@ -780,6 +933,8 @@ window.SF = window.SF || {};
         : "L'export include SEMPRE tutti i rilevamenti, anche quelli nascosti qui sopra dal filtro a schermo.";
       note.textContent = viewNote + exportNote;
     }
+    const geoNote = document.getElementById('report-geo-export-note');
+    if (geoNote) geoNote.textContent = ''; // conteggio esclusi KML/GeoJSON: si aggiorna solo al prossimo export
     if (st.viewMode === 'target') renderTargetView();
     else renderPhotoView();
   }
