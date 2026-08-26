@@ -180,6 +180,16 @@ async function processImage(cv, file, profile, config) {
   const sw = Math.max(1, Math.round(wFull * scale)), sh = Math.max(1, Math.round(hFull * scale));
 
   const small = matFromImageBitmap(cv, bitmap, sw, sh);
+
+  // --- normalizzazione dell'illuminazione (punto 5): gray-world calcolato UNA VOLTA su tutta la
+  // foto (qui, sulla versione ridotta `small` — rappresentativa dell'intera scena), applicato in
+  // place prima della conversione colore. Gli stessi guadagni verranno riapplicati identici a ogni
+  // ritaglio più sotto (mai ricalcolati su un ritaglio: un ritaglio dominato dal colore del target
+  // violerebbe l'assunzione "il colore medio tende al grigio" — vedi color_calib.js). Non tocca in
+  // alcun modo `bitmap`: i crop_jpeg mostrati nel Report vengono sempre incisi dal bitmap originale.
+  const grayWorldGains = computeGrayWorldGains(small.data, small.rows * small.cols, 3);
+  applyGrayWorldGains(small.data, small.rows * small.cols, grayWorldGains, 3);
+
   const mask = buildMask(cv, small, profile, config.colorSpace, config.morphKernel);
 
   const contours = new cv.MatVector();
@@ -230,6 +240,12 @@ async function processImage(cv, file, profile, config) {
     const cropRgb = new cv.Mat();
     cv.cvtColor(cropRgba, cropRgb, cv.COLOR_RGBA2RGB);
     cropRgba.delete();
+
+    // Stessi guadagni gray-world calcolati sopra per l'INTERA foto, NON ricalcolati su questo
+    // ritaglio (vedi commento sopra e color_calib.js): il buffer di matching (`cropRgb`) viene
+    // corretto, ma `bitmap` — da cui `encodeCropJpeg` incide il crop mostrato nel Report — resta
+    // sempre quello originale, invariato.
+    applyGrayWorldGains(cropRgb.data, cropRgb.rows * cropRgb.cols, grayWorldGains, 3);
 
     const cropMask = buildMask(cv, cropRgb, profile, config.colorSpace, config.morphKernel);
     const cropLab = new cv.Mat();

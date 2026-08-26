@@ -19,6 +19,10 @@ window.SF = window.SF || {};
     currentPatchRgba: null, // {data, width, height} — usato in modalita' palette
     samples: [], // {x, y, patch:{data,width,height}} — punti campionati in modalita' foto
     currentProfile: null,
+    // Normalizzazione illuminazione (punto 5), calcolata una volta al caricamento della foto e
+    // riapplicata identica a ogni campione/anteprima di QUESTA foto — mai in modalita' Palette
+    // (nessuna foto la cui illuminazione vada compensata: l'utente sceglie un colore esatto).
+    grayWorldGains: null,
     pointCaption: '',
     sampleSource: '',
     // pan/zoom
@@ -151,6 +155,11 @@ window.SF = window.SF || {};
       st.fullCanvas.height = st.natH;
       st.fullCanvas.getContext('2d').drawImage(img, 0, 0);
 
+      // Normalizzazione illuminazione (punto 5): calcolata una sola volta su tutta la foto appena
+      // caricata (mai su un ritaglio piccolo dominato dal target, che violerebbe l'ipotesi "media
+      // scena = grigio"), poi riapplicata identica a ogni campione e all'anteprima live di QUESTA foto.
+      st.grayWorldGains = computeGrayWorldGainsForPhoto();
+
       const viewport = document.getElementById('calib-pz-viewport');
       const dispHeight = Math.max(1, Math.round((DISPLAY_WIDTH * st.natH) / st.natW));
       viewport.style.height = dispHeight + 'px';
@@ -182,17 +191,39 @@ window.SF = window.SF || {};
   }
 
   // ---------------------------------------------------------------- estrazione patch + profilo
+
+  /** Calcola i guadagni gray-world sulla foto corrente (downscale a maxDim, come computeLivePreview). */
+  function computeGrayWorldGainsForPhoto() {
+    if (!st.fullCanvas) return null;
+    const maxDim = 800;
+    const scale = Math.min(1, maxDim / Math.max(st.natW, st.natH));
+    const sw = Math.max(1, Math.round(st.natW * scale)), sh = Math.max(1, Math.round(st.natH * scale));
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = sw; tmpCanvas.height = sh;
+    const tctx = tmpCanvas.getContext('2d');
+    tctx.drawImage(st.fullCanvas, 0, 0, sw, sh);
+    const imgData = tctx.getImageData(0, 0, sw, sh);
+    return computeGrayWorldGains(imgData.data, sw * sh, 4);
+  }
+
   function clampedPatch(cx, cy) {
     const w = 2 * PATCH_HALF + 1, h = 2 * PATCH_HALF + 1;
     const x0 = Math.max(0, cx - PATCH_HALF), y0 = Math.max(0, cy - PATCH_HALF);
     const x1 = Math.min(st.natW, cx - PATCH_HALF + w), y1 = Math.min(st.natH, cy - PATCH_HALF + h);
+    let imgData, pw, ph;
     if (x1 <= x0 || y1 <= y0) {
       const sx = Math.max(0, Math.min(st.natW - 1, cx)), sy = Math.max(0, Math.min(st.natH - 1, cy));
-      const imgData = st.fullCanvas.getContext('2d').getImageData(sx, sy, 1, 1);
-      return { data: imgData.data, width: 1, height: 1 };
+      imgData = st.fullCanvas.getContext('2d').getImageData(sx, sy, 1, 1);
+      pw = 1; ph = 1;
+    } else {
+      imgData = st.fullCanvas.getContext('2d').getImageData(x0, y0, x1 - x0, y1 - y0);
+      pw = x1 - x0; ph = y1 - y0;
     }
-    const imgData = st.fullCanvas.getContext('2d').getImageData(x0, y0, x1 - x0, y1 - y0);
-    return { data: imgData.data, width: x1 - x0, height: y1 - y0 };
+    // Stessa correzione illuminazione applicata alla foto intera (mai ricalcolata sulla patch,
+    // che sarebbe troppo piccola/non rappresentativa) — cosi' il profilo e i rilevamenti batch
+    // vivono nello stesso spazio colore "canonicalizzato".
+    if (st.grayWorldGains) applyGrayWorldGains(imgData.data, pw * ph, st.grayWorldGains, 4);
+    return { data: imgData.data, width: pw, height: ph };
   }
 
   const MAX_SAMPLES = 12;
@@ -308,6 +339,10 @@ window.SF = window.SF || {};
     const rgb = new cv.Mat();
     cv.cvtColor(rgba, rgb, cv.COLOR_RGBA2RGB);
     rgba.delete();
+
+    // Stessa normalizzazione illuminazione usata per i campioni di QUESTA foto, cosi' l'anteprima
+    // rispecchia fedelmente cio' che il batch rileverebbe davvero.
+    if (st.grayWorldGains) applyGrayWorldGains(rgb.data, rgb.rows * rgb.cols, st.grayWorldGains, 3);
 
     const mask = buildMask(cv, rgb, profile, colorSpace, 5);
     const lab = new cv.Mat();
@@ -542,6 +577,7 @@ window.SF = window.SF || {};
         st.currentPatchRgba = null;
         st.samples = [];
         st.currentProfile = null;
+        st.grayWorldGains = null; // Palette: nessuna foto la cui illuminazione vada compensata
         livePreviewGen++;
         document.getElementById('calib-preview').innerHTML = '';
         renderModeBody();

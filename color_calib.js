@@ -33,6 +33,83 @@ function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
 
+// ------------------------------------------------------------- normalizzazione illuminazione (punto 5)
+/**
+ * Normalizzazione dell'illuminazione stile "gray-world", punto 5 della roadmap: compensa le
+ * variazioni di luce/esposizione tra foto diverse della stessa missione (sole pieno vs nuvoloso,
+ * ombra del drone, esposizione automatica della camera che cambia scatto per scatto) PRIMA del
+ * color matching, così lo stesso indumento risulta più simile a se stesso da una foto all'altra.
+ *
+ * Assunzione gray-world: in una foto "abbastanza varia" (terreno, vegetazione, ombre, strade...)
+ * il colore medio della scena tende al grigio neutro; se un canale (R, G o B) ha una media diversa
+ * dagli altri due, è probabile un cast di colore dovuto all'illuminazione — si corregge riportando
+ * ogni canale alla stessa media (la media complessiva dei tre).
+ *
+ * IMPORTANTE: va calcolata sull'INTERA foto (o una sua versione ridotta rappresentativa), MAI su
+ * un ritaglio piccolo dominato dal target stesso (es. una giacca rossa satura): un ritaglio così
+ * violerebbe l'assunzione "il colore medio tende al grigio" e la correzione distorcerebbe proprio
+ * il colore che si sta cercando di riconoscere. Per questo sia il worker di rilevamento
+ * (detect_worker.js) sia la Calibrazione (js/calibrazione.js) calcolano i guadagni UNA VOLTA per
+ * foto — su una versione dell'intera immagine — e li riapplicano identici a ogni ritaglio/campione
+ * successivo della stessa foto, senza ricalcolarli localmente.
+ *
+ * Per lo stesso motivo la Calibrazione applica la stessa normalizzazione ai campioni prelevati
+ * dalla foto (non alla modalità Palette, dove l'utente sceglie un colore esatto, senza una foto la
+ * cui illuminazione vada compensata): profilo e rilevamento devono essere calcolati sulla stessa
+ * base cromatica "canonicalizzata", altrimenti il confronto in batch sarebbe sistematicamente
+ * disallineato rispetto a come il profilo è stato calibrato.
+ *
+ * LIMITE NOTO: un profilo salvato PRIMA di questa modifica è stato calibrato su colori grezzi (non
+ * gray-world); da qui in avanti calibrazione e rilevamento sono coerenti tra loro per i profili
+ * creati/aggiornati con questa versione, ma un profilo più vecchio può risultare leggermente meno
+ * preciso finché non viene ricreato.
+ */
+const GRAY_WORLD_MAX_GAIN_DEVIATION = 0.35; // guadagni ammessi in [0.65, 1.35]: correzione moderata,
+// mai estrema — su foto con poca varietà cromatica (molta neve, molto mare) l'assunzione di base è
+// meno valida, e una correzione aggressiva rischierebbe di alterare i colori più del necessario.
+
+function clamp255(v) {
+  return Math.max(0, Math.min(255, v));
+}
+
+/**
+ * Calcola i guadagni gray-world (uno per canale R,G,B) leggendo direttamente il buffer di pixel di
+ * un'immagine — RGB a 3 canali (Mat OpenCV) o RGBA a 4 (ImageData canvas): solo i primi 3 canali
+ * contano, l'eventuale alpha viene ignorato. Nessuna dipendenza da `cv` (loop diretto sul buffer,
+ * stesso stile già usato in colorConfidence/buildMask), quindi utilizzabile identica sia sul thread
+ * principale (Calibrazione) sia nel worker.
+ */
+function computeGrayWorldGains(data, nPixels, channelsPerPixel) {
+  const stride = channelsPerPixel || 3;
+  let sumR = 0, sumG = 0, sumB = 0;
+  for (let i = 0; i < nPixels; i++) {
+    const o = i * stride;
+    sumR += data[o]; sumG += data[o + 1]; sumB += data[o + 2];
+  }
+  const meanR = sumR / nPixels, meanG = sumG / nPixels, meanB = sumB / nPixels;
+  const overallMean = (meanR + meanG + meanB) / 3;
+  const clampGain = (g) => clamp(g, 1 - GRAY_WORLD_MAX_GAIN_DEVIATION, 1 + GRAY_WORLD_MAX_GAIN_DEVIATION);
+  return {
+    r: clampGain(overallMean / Math.max(meanR, 1)),
+    g: clampGain(overallMean / Math.max(meanG, 1)),
+    b: clampGain(overallMean / Math.max(meanB, 1)),
+  };
+}
+
+/**
+ * Applica IN-PLACE i guadagni (da computeGrayWorldGains, calcolati una volta per foto) al buffer
+ * passato — nessun nuovo Mat/ImageData allocato, il chiamante continua a usare lo stesso oggetto.
+ */
+function applyGrayWorldGains(data, nPixels, gains, channelsPerPixel) {
+  const stride = channelsPerPixel || 3;
+  for (let i = 0; i < nPixels; i++) {
+    const o = i * stride;
+    data[o] = clamp255(Math.round(data[o] * gains.r));
+    data[o + 1] = clamp255(Math.round(data[o + 1] * gains.g));
+    data[o + 2] = clamp255(Math.round(data[o + 2] * gains.b));
+  }
+}
+
 /**
  * Calcola il profilo colore (media + tolleranza adattiva) da uno o piu' campioni.
  * Ogni sample e' una patch di pixel RGBA (come da canvas ImageData): con un
