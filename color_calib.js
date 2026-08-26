@@ -233,12 +233,30 @@ function narrowToleranceFromFalsePositive(profile, negativeMeanLab) {
   return tol;
 }
 
+/**
+ * La tonalità (H) in OpenCV è un angolo su una ruota 0-179 che poi torna a 0: il rosso sta proprio
+ * sul punto di giunzione (rosso "caldo" vicino a H=0, rosso più violaceo/carrozzeria vicino a
+ * H=179). Un intervallo dritto [h-th, h+th] tagliato a [0,179] esclude erroneamente metà della
+ * tolleranza reale quando il colore campionato è vicino a uno dei due bordi — per esempio un rosso
+ * campionato a H=2 con tolleranza 30 dovrebbe coprire anche H=175-179 (che sul cerchio dei colori
+ * sono a soli pochi gradi di distanza), ma [2-30,2+30] tagliato a 0 dà [0,32], perdendo del tutto
+ * quel lato. Qui si restituiscono 1 o 2 intervalli che insieme coprono correttamente il giro.
+ */
+function hsvHueRanges(h, th) {
+  if (th >= 90) return [[0, 179]]; // tolleranza >= mezzo giro: copre già l'intera ruota
+  const lo = h - th, hi = h + th;
+  if (lo < 0) return [[0, hi], [lo + 180, 179]];
+  if (hi > 179) return [[lo, 179], [0, hi - 180]];
+  return [[lo, hi]];
+}
+
 function hsvBounds(profile) {
   const [h, s, v] = profile.mean_hsv;
   const [th, ts, tv] = profile.tolerance_hsv;
   return {
-    lower: [Math.max(h - th, 0), Math.max(s - ts, 0), Math.max(v - tv, 0)],
-    upper: [Math.min(h + th, 179), Math.min(s + ts, 255), Math.min(v + tv, 255)],
+    hueRanges: hsvHueRanges(h, th),
+    sRange: [Math.max(s - ts, 0), Math.min(s + ts, 255)],
+    vRange: [Math.max(v - tv, 0), Math.min(v + tv, 255)],
   };
 }
 
@@ -283,11 +301,25 @@ function buildMask(cv, mat, profile, colorSpace, kernelSize) {
     const hsv = new cv.Mat();
     cv.cvtColor(mat, hsv, cv.COLOR_RGB2HSV);
     const hb = hsvBounds(profile);
-    const lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [hb.lower[0], hb.lower[1], hb.lower[2], 0]);
-    const upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [hb.upper[0], hb.upper[1], hb.upper[2], 255]);
+    // Uno o due passaggi di inRange (uno per ogni intervallo di tonalità, vedi hsvHueRanges),
+    // uniti con bitwise_or: un pixel passa se rientra in QUALSIASI dei due intervalli di H, con
+    // S e V verificati identicamente in entrambi — gestisce correttamente il giro della ruota dei
+    // colori attorno allo 0/179, dove sta il rosso.
     maskHsv = new cv.Mat();
-    cv.inRange(hsv, lower, upper, maskHsv);
-    hsv.delete(); lower.delete(); upper.delete();
+    hb.hueRanges.forEach(([hLo, hHi], i) => {
+      const lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [hLo, hb.sRange[0], hb.vRange[0], 0]);
+      const upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [hHi, hb.sRange[1], hb.vRange[1], 255]);
+      if (i === 0) {
+        cv.inRange(hsv, lower, upper, maskHsv);
+      } else {
+        const partial = new cv.Mat();
+        cv.inRange(hsv, lower, upper, partial);
+        cv.bitwise_or(maskHsv, partial, maskHsv);
+        partial.delete();
+      }
+      lower.delete(); upper.delete();
+    });
+    hsv.delete();
   }
   if (colorSpace === 'lab' || colorSpace === 'both') {
     const lab = new cv.Mat();

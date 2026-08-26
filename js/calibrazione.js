@@ -438,7 +438,9 @@ window.SF = window.SF || {};
           <div>
             <strong>Colore medio HSV</strong>
             <pre>H=${profile.mean_hsv[0].toFixed(2)}  S=${profile.mean_hsv[1].toFixed(2)}  V=${profile.mean_hsv[2].toFixed(2)}</pre>
-            <p class="sf-caption">Range maschera (HSV): ${JSON.stringify(hsvBounds(profile).lower)} → ${JSON.stringify(hsvBounds(profile).upper)}</p>
+            <p class="sf-caption">Range maschera (HSV): H ${hsvBounds(profile).hueRanges.map(([lo, hi]) => `${lo.toFixed(0)}-${hi.toFixed(0)}`).join(' ∪ ')}
+              (giro gestito, tipico per i rossi) · S ${hsvBounds(profile).sRange.map((x) => x.toFixed(0)).join('-')}
+              · V ${hsvBounds(profile).vRange.map((x) => x.toFixed(0)).join('-')}</p>
           </div>
           <div>
             <strong>Colore medio CIE-LAB</strong>
