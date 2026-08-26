@@ -12,16 +12,32 @@ window.SF = window.SF || {};
   const DISPLAY_WIDTH = 640;
   const MIN_ZOOM = 1, MAX_ZOOM = 6;
 
-  // Scorciatoie per la modalita' Palette: colori tipici dell'equipaggiamento SAR (indumenti/gilet
-  // ad alta visibilita', zaini, teli), per chi non ha una foto di riferimento a portata di mano e
-  // non conosce colori/fotografia — un click imposta il colore esatto, restando comunque modificabile
-  // col selettore sotto. Volutamente NESSUN bianco/nero: su foto aeree confondono con neve, cemento,
-  // rocce e ombre, causando troppi falsi positivi — meglio partire da un campione reale in quel caso.
+  // Scorciatoie per la modalita' Palette: colori tipici di indumenti ed equipaggiamento SAR, per chi
+  // non ha una foto di riferimento a portata di mano e non conosce colori/fotografia — un click
+  // imposta il colore esatto, restando comunque modificabile col selettore sotto. Niente nero: su
+  // foto aeree si confonde con le ombre in modo quasi indistinguibile. Verde militare e bianco SONO
+  // inclusi (per esperienza di campo capitano davvero: mimetiche, magliette/teli chiari) ma sono
+  // segnalati (warn: true) perche' si confondono piu' facilmente con vegetazione/bosco o neve-cemento-
+  // nuvole — piu' falsi positivi attesi, gestibili comunque con la revisione falsi positivi del Report.
   const PRESET_COLORS = [
     { label: 'Arancione alta visibilità', hex: '#FF6A00', desc: 'Giacche e gilet ad alta visibilità arancione fluo' },
     { label: 'Giallo-verde alta visibilità', hex: '#D7FF00', desc: 'Gilet catarifrangenti giallo-verde fluo' },
     { label: 'Rosso', hex: '#E2231A', desc: 'Giacche a vento, piumini, zaini rossi' },
     { label: 'Blu', hex: '#1B4F9C', desc: 'Zaini e giacche outdoor blu' },
+    { label: 'Blu scuro (navy)', hex: '#1C2B4A', desc: 'Giacche e uniformi blu scuro/navy' },
+    { label: 'Denim (jeans)', hex: '#4C6B8A', desc: 'Pantaloni e giacche in denim/jeans' },
+    {
+      label: 'Verde militare',
+      hex: '#4B5320',
+      desc: 'Giacche/pantaloni mimetici o verde militare — attenzione: si confonde facilmente con vegetazione e bosco visti dall\'alto, aspettati più falsi positivi',
+      warn: true,
+    },
+    {
+      label: 'Bianco',
+      hex: '#F5F5F5',
+      desc: 'Magliette, teli o capi chiari — attenzione: si confonde facilmente con neve, cemento, tetti chiari e nuvole, aspettati più falsi positivi',
+      warn: true,
+    },
   ];
 
   const st = {
@@ -575,17 +591,19 @@ window.SF = window.SF || {};
     } else {
       body.innerHTML = `
         <label class="sf-label">Colori tipici SAR (opzionale — un click imposta il colore, poi puoi affinarlo)</label>
-        <div id="calib-preset-row" style="display:flex; flex-wrap:wrap; gap:0.5rem; margin: 0.4rem 0 1rem;">
+        <div id="calib-preset-row" style="display:flex; flex-wrap:wrap; gap:0.5rem; margin: 0.4rem 0 0.4rem;">
           ${PRESET_COLORS.map(
             (p) => `
             <button type="button" class="calib-preset-chip" data-hex="${p.hex}" title="${SF.escapeHtml(p.desc)}"
               style="display:flex; align-items:center; gap:0.4rem; padding:0.35rem 0.6rem; border-radius:999px;
               border:1px solid var(--border); background:var(--panel); color:var(--text); cursor:pointer; font-size:0.85rem;">
               <span style="display:inline-block; width:14px; height:14px; border-radius:50%; background:${p.hex};
-                border:1px solid rgba(255,255,255,0.25);"></span>${SF.escapeHtml(p.label)}
+                border:1px solid rgba(255,255,255,0.25);"></span>${SF.escapeHtml(p.label)}${p.warn ? ' ⚠️' : ''}
             </button>`
           ).join('')}
         </div>
+        <p class="sf-caption" style="margin: 0 0 0.9rem;">⚠️ = più falsi positivi attesi (si confonde con vegetazione,
+          neve, cemento o nuvole viste dall'alto) — usabile comunque, la revisione falsi positivi nel Report aiuta a ripulire.</p>
         <label class="sf-label">Oppure scegli un colore personalizzato</label>
         <input type="color" id="calib-palette-color" value="#c82828" style="width:120px; height:44px; padding:2px; cursor:pointer;">
       `;
