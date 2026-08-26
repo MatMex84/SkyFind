@@ -11,6 +11,7 @@
 importScripts('opencv.js');
 importScripts('color_calib.js');
 importScripts('exif_gps.js');
+importScripts('geo_utils.js');
 
 const CONFIG = {
   downscaleMaxDim: 1600,
@@ -48,6 +49,8 @@ async function processImage(cv, file, profile, config) {
   const result = {
     name: file.name, width: 0, height: 0,
     gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
+    rel_altitude_m: null, heading_deg: null, heading_source: null, gimbal_pitch_deg: null,
+    agl_m: null, agl_source: null, gsd_m_per_px: null,
     detections: [], skipped_reason: null, error: null,
   };
 
@@ -69,6 +72,36 @@ async function processImage(cv, file, profile, config) {
 
   const wFull = bitmap.width, hFull = bitmap.height;
   result.width = wFull; result.height = hFull;
+
+  // --- georeferenziazione per-pixel del target: quota AGL, sorgente e GSD di QUESTA foto ---
+  // (uguale per tutte le detection della stessa foto: viene ricalcolato una volta sola qui,
+  // il costo per-detection è solo la trigonometria in pixelOffsetToLatLon più sotto).
+  let aglM = null, aglSource = null;
+  if (typeof gps.rel_altitude_m === 'number') {
+    aglM = gps.rel_altitude_m;
+    aglSource = 'xmp_relative_altitude'; // quota AGL reale sul punto di decollo, dai metadati DJI
+  } else if (typeof config.fallbackAltitudeM === 'number' && config.fallbackAltitudeM > 0) {
+    aglM = config.fallbackAltitudeM;
+    aglSource = 'fallback_manual'; // valore unico impostato dall'utente in Elaborazione Batch, stessa quota per tutte le foto che ne mancano
+  }
+  const sensor = config.sensor || null;
+  // focalPx alimenta la proiezione raggio-terreno (gestisce anche gli scatti obliqui, vedi
+  // geo_utils.js); gsdMPerPx resta come indicatore di risoluzione "equivalente nadir" al centro
+  // immagine, usato più avanti anche dal filtro geometrico sull'area dei blob.
+  const focalPx = sensor ? computeFocalLengthPx(sensor.sensor_width_mm, sensor.focal_length_mm, wFull) : null;
+  const gsdMPerPx = sensor ? computeGsdMPerPx(aglM, sensor.sensor_width_mm, sensor.focal_length_mm, wFull) : null;
+  const canGeoreferenceTarget = result.gps_lat !== null && focalPx !== null && aglM !== null;
+  const geoNote = !sensor
+    ? 'nessuna camera selezionata in Elaborazione Batch: impossibile calcolare la posizione del target'
+    : result.gps_lat === null
+      ? 'foto senza dati GPS nei metadati EXIF'
+      : aglM === null
+        ? 'quota AGL non disponibile (né XMP DJI né quota di fallback impostata in Elaborazione Batch)'
+        : null;
+  const geoWarning = obliqueShotWarning(gps.gimbal_pitch_deg);
+  result.agl_m = aglM;
+  result.agl_source = aglSource;
+  result.gsd_m_per_px = gsdMPerPx;
 
   const scale = Math.min(1, config.downscaleMaxDim / Math.max(wFull, hFull));
   const sw = Math.max(1, Math.round(wFull * scale)), sh = Math.max(1, Math.round(hFull * scale));
@@ -127,11 +160,40 @@ async function processImage(cv, file, profile, config) {
 
     const jpegBuf = await encodeCropJpeg(bitmap, fx, fy, fw, fh);
 
+    // Posizione GPS del target (non del centro foto): proietta il raggio ottico del centroide
+    // del bounding box fino al terreno, tenendo conto di yaw E pitch della camera (gestisce
+    // quindi anche scatti obliqui, non solo nadir — vedi geo_utils.js per il modello e le
+    // assunzioni residue, es. terreno piano e roll=0).
+    let targetLat = null, targetLon = null, geoUnreachable = false;
+    if (canGeoreferenceTarget) {
+      const cx = fx + fw / 2, cy = fy + fh / 2;
+      const dxPx = cx - wFull / 2, dyPx = cy - hFull / 2;
+      const targetGeo = pixelOffsetToLatLon(
+        result.gps_lat, result.gps_lon, dxPx, dyPx, focalPx, aglM, result.heading_deg, result.gimbal_pitch_deg
+      );
+      if (targetGeo) {
+        targetLat = targetGeo.lat;
+        targetLon = targetGeo.lon;
+      } else {
+        geoUnreachable = true; // raggio oltre l'orizzonte apparente: scatto molto obliquo + target vicino al bordo
+      }
+    }
+    const finalGeoNote = !canGeoreferenceTarget
+      ? geoNote
+      : geoUnreachable
+        ? "il target si proietta oltre l'orizzonte apparente per questo scatto molto obliquo: posizione non calcolabile in modo affidabile"
+        : null;
+
     result.detections.push({
       bbox: [fx, fy, fw, fh],
       confidence: Math.round(confidence * 10) / 10,
       fill_ratio: Math.round(fillRatio * 10) / 10,
       crop_jpeg: jpegBuf,
+      target_lat: targetLat,
+      target_lon: targetLon,
+      geo_note: finalGeoNote,
+      geo_warning: geoWarning,
+      heading_source: result.heading_source,
     });
 
     cropRgb.delete(); cropMask.delete(); cropLab.delete();
@@ -163,7 +225,11 @@ self.onmessage = async function (e) {
     } catch (err) {
       self.postMessage({
         jobId, index: i,
-        result: { name: files[i].name, width: 0, height: 0, detections: [], error: String(err && err.message || err) },
+        result: {
+          name: files[i].name, width: 0, height: 0,
+          gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
+          detections: [], error: String(err && err.message || err),
+        },
       });
     }
   }

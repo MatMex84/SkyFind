@@ -30,6 +30,14 @@ window.SF = window.SF || {};
     detectionMode: 'hsv',
     requireGps: false,
     running: false,
+    // Camera + quota, usati SOLO per calcolare la posizione GPS del target (vedi geo_utils.js).
+    // Non influenzano il rilevamento colore in sé: se lasciati vuoti, il batch funziona comunque
+    // com'era prima, semplicemente senza coordinate del singolo target (solo del centro foto).
+    georef: {
+      droneId: null, // impostato al primo drone rilevante in buildOnce
+      custom: { sensor_width_mm: 6.3, focal_length_mm: 4.5 },
+      fallbackAltitudeM: null,
+    },
   };
 
   function filterImages(fileList) {
@@ -75,6 +83,51 @@ window.SF = window.SF || {};
     renderSourceStatus();
   }
 
+  // ------------------------------------------------------------- camera + quota (georeferenziazione target)
+  /** Sensore/focale da usare per il calcolo del GSD, o null se non ancora impostati (custom incompleto). */
+  function resolveGeorefSensor() {
+    const d = DRONES.find((x) => x.id === st.georef.droneId);
+    if (!d) return null;
+    if (d.sensor_width_mm === null) {
+      const c = st.georef.custom;
+      if (!(c.sensor_width_mm > 0) || !(c.focal_length_mm > 0)) return null;
+      return { sensor_width_mm: c.sensor_width_mm, focal_length_mm: c.focal_length_mm };
+    }
+    return { sensor_width_mm: d.sensor_width_mm, focal_length_mm: d.focal_length_mm };
+  }
+
+  function renderGeorefCustomFields() {
+    const wrap = document.getElementById('batch-georef-custom');
+    if (!wrap) return;
+    const d = DRONES.find((x) => x.id === st.georef.droneId);
+    if (!d || d.sensor_width_mm !== null) {
+      wrap.innerHTML = '';
+      return;
+    }
+    const c = st.georef.custom;
+    wrap.innerHTML = `
+      <div class="sf-grid-2">
+        <div>
+          <label class="sf-label">Larghezza sensore (mm)</label>
+          <input type="number" step="0.1" min="0.1" id="batch-sensor-width" value="${c.sensor_width_mm}">
+        </div>
+        <div>
+          <label class="sf-label">Lunghezza focale reale (mm, non equivalente)</label>
+          <input type="number" step="0.1" min="0.1" id="batch-focal-length" value="${c.focal_length_mm}">
+        </div>
+      </div>
+      <p class="sf-caption">Stessi valori del Mission Planner per questo drone, se li hai già inseriti lì.</p>
+    `;
+    document.getElementById('batch-sensor-width').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.georef.custom.sensor_width_mm = Number.isFinite(v) ? v : 0;
+    });
+    document.getElementById('batch-focal-length').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.georef.custom.focal_length_mm = Number.isFinite(v) ? v : 0;
+    });
+  }
+
   function renderStartSection() {
     const out = document.getElementById('batch-start-section');
     if (!out) return;
@@ -110,6 +163,8 @@ window.SF = window.SF || {};
       maxDetectionsPerImage: FIXED_CONFIG.maxDetectionsPerImage,
       cropPaddingPx: FIXED_CONFIG.cropPaddingPx,
       requireGps: st.requireGps,
+      sensor: resolveGeorefSensor(), // per il GSD/posizione GPS del target, non per il rilevamento colore
+      fallbackAltitudeM: st.georef.fallbackAltitudeM,
     };
 
     const files = st.files;
@@ -175,7 +230,11 @@ window.SF = window.SF || {};
         // un worker in errore non deve bloccare l'intero batch: segna i suoi file come errore e prosegui
         for (const gi of globalIdxs) {
           if (!results[gi]) {
-            results[gi] = { name: files[gi].name, width: 0, height: 0, detections: [], error: String(e.message || e) };
+            results[gi] = {
+              name: files[gi].name, width: 0, height: 0,
+              gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
+              detections: [], error: String(e.message || e),
+            };
             completedCount++;
           }
         }
@@ -194,6 +253,15 @@ window.SF = window.SF || {};
     const errors = results.filter((r) => r.error);
     const skipped = results.filter((r) => r.skipped_reason);
 
+    let detectionsWithGeo = 0;
+    const geoMissingReasons = new Set();
+    results.forEach((r) =>
+      (r.detections || []).forEach((d) => {
+        if (d.target_lat !== null && d.target_lat !== undefined) detectionsWithGeo++;
+        else if (d.geo_note) geoMissingReasons.add(d.geo_note);
+      })
+    );
+
     document.getElementById('batch-progress-wrap').innerHTML = '';
     const out = document.getElementById('batch-results-section');
     out.innerHTML = `
@@ -204,6 +272,12 @@ window.SF = window.SF || {};
         <div class="sf-metric"><div class="sf-metric-label">Target individuati</div><div class="sf-metric-value">${totalDetections}</div></div>
         <div class="sf-metric"><div class="sf-metric-label">Scartate/errori</div><div class="sf-metric-value">${skipped.length + errors.length}</div></div>
       </div>
+      ${
+        totalDetections
+          ? `<p class="sf-caption" style="margin-top:0.6rem;">📍 Posizione GPS calcolata per <strong>${detectionsWithGeo}/${totalDetections}</strong>
+             target rilevati.${geoMissingReasons.size ? ' Per gli altri manca: ' + Array.from(geoMissingReasons).map((s) => SF.escapeHtml(s)).join('; ') + '.' : ''}</p>`
+          : ''
+      }
       ${
         errors.length
           ? `<details class="sf-expander"><summary>⚠️ ${errors.length} foto con errori di lettura</summary>
@@ -229,6 +303,12 @@ window.SF = window.SF || {};
     }
 
     const profileOptions = saved.map((p) => `<option value="${SF.escapeHtml(p.name)}">${SF.escapeHtml(p.name)}</option>`).join('');
+    const droneFilter = typeof SF.isWideRgbColorCamera === 'function' ? SF.isWideRgbColorCamera : () => true;
+    const georefDrones = DRONES.filter(droneFilter);
+    if (!st.georef.droneId) st.georef.droneId = georefDrones.length ? georefDrones[0].id : DRONES[0].id;
+    const droneOptions = georefDrones
+      .map((d) => `<option value="${d.id}">${SF.escapeHtml(d.drone)} — ${SF.escapeHtml(d.sensore)}</option>`)
+      .join('');
 
     container.innerHTML = `
       <h2 class="sf-section">1. Profilo colore</h2>
@@ -243,7 +323,21 @@ window.SF = window.SF || {};
       </div>
       <div id="batch-source-body"></div>
 
-      <h2 class="sf-section">3. Modalità di rilevamento</h2>
+      <h2 class="sf-section">3. Camera e posizione GPS del target</h2>
+      <p class="sf-caption">SkyFind calcola la posizione GPS di ogni target rilevato (non solo del centro foto):
+        servono la camera in uso — come nel Mission Planner — e la quota di volo.</p>
+      <label class="sf-label">Drone e camera in uso</label>
+      <select id="batch-drone-select">${droneOptions}</select>
+      <div id="batch-georef-custom" style="margin-top:0.7rem;"></div>
+      <label class="sf-label" style="margin-top:0.9rem;">Quota di volo di riserva (AGL, metri) — opzionale</label>
+      <input type="number" step="1" min="1" id="batch-fallback-altitude" placeholder="es. 40">
+      <p class="sf-caption">Usata solo per le foto <em>senza</em> quota relativa nei metadati DJI
+        (<code>drone-dji:RelativeAltitude</code>, presente sulla stragrande maggioranza delle foto DJI): se il dato
+        c'è nella foto, ha sempre la precedenza su questo valore. Se lasci vuoto e manca anche nella foto, per
+        quelle foto i target vengono comunque rilevati ma senza una loro posizione GPS specifica (resta solo la
+        posizione del drone al momento dello scatto, come prima).</p>
+
+      <h2 class="sf-section">4. Modalità di rilevamento</h2>
       <div class="sf-grid-2">
         <div>
           <label class="sf-label">Come cercare il colore nelle foto?</label>
@@ -260,7 +354,7 @@ window.SF = window.SF || {};
         </div>
       </div>
 
-      <h2 class="sf-section">4. Avvia elaborazione</h2>
+      <h2 class="sf-section">5. Avvia elaborazione</h2>
       <div id="batch-start-section"></div>
       <div id="batch-progress-wrap"></div>
       <div id="batch-results-section"></div>
@@ -268,6 +362,17 @@ window.SF = window.SF || {};
 
     document.getElementById('batch-detection-mode').addEventListener('change', (e) => (st.detectionMode = e.target.value));
     document.getElementById('batch-require-gps').addEventListener('change', (e) => (st.requireGps = e.target.checked));
+
+    document.getElementById('batch-drone-select').value = st.georef.droneId;
+    document.getElementById('batch-drone-select').addEventListener('change', (e) => {
+      st.georef.droneId = e.target.value;
+      renderGeorefCustomFields();
+    });
+    renderGeorefCustomFields();
+    document.getElementById('batch-fallback-altitude').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.georef.fallbackAltitudeM = Number.isFinite(v) && v > 0 ? v : null;
+    });
 
     container.querySelectorAll('input[name="batch-source"]').forEach((r) => {
       r.addEventListener('change', (e) => {

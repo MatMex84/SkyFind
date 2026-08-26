@@ -220,6 +220,10 @@ window.SF = window.SF || {};
     if (d.id === 'custom') return true;
     return !/termic|zoom|tele/i.test(d.sensore);
   }
+  // Riusata anche da js/batch.js per la selezione camera ai fini della georeferenziazione
+  // del target: stessa lista, stesso motivo (serve solo il sensore RGB grandangolare usato
+  // per il rilevamento colore, non le varianti zoom/tele/termiche).
+  SF.isWideRgbColorCamera = isRelevantForPlanner;
 
   function buildOnce() {
     const container = document.getElementById('mp-content');

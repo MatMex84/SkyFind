@@ -133,12 +133,28 @@ window.SF = window.SF || {};
     }
   }
 
+  /** Riga con la posizione GPS stimata del target (non del centro foto), o il motivo per cui manca. */
+  function targetGeoLine(det) {
+    if (det.target_lat !== null && det.target_lat !== undefined) {
+      const warn = det.geo_warning ? ` ⚠️ ${SF.escapeHtml(det.geo_warning)}` : '';
+      const noHeading = !det.heading_source
+        ? ' (heading della camera non disponibile nei metadati: assunto nord=alto immagine)'
+        : '';
+      return (
+        `📍 target: <a href="${mapsLink(det.target_lat, det.target_lon)}" target="_blank" rel="noopener">` +
+        `${det.target_lat.toFixed(6)}, ${det.target_lon.toFixed(6)}</a>${noHeading}${warn}`
+      );
+    }
+    return `📍 target: posizione non calcolabile${det.geo_note ? ' (' + SF.escapeHtml(det.geo_note) + ')' : ''}`;
+  }
+
   function openLightbox(det, photoName) {
     const box = document.getElementById('sf-lightbox');
     document.getElementById('sf-lightbox-img').src = cropUrl(det);
     document.getElementById('sf-lightbox-caption').innerHTML =
       `${SF.escapeHtml(photoName)} — Confidenza: <strong>${SF.formatNum(det.confidence)}%</strong> · ` +
-      `Area: ${SF.formatNum(det.fill_ratio)}% · bbox: x=${det.bbox[0]} y=${det.bbox[1]} w=${det.bbox[2]} h=${det.bbox[3]}`;
+      `Area: ${SF.formatNum(det.fill_ratio)}% · bbox: x=${det.bbox[0]} y=${det.bbox[1]} w=${det.bbox[2]} h=${det.bbox[3]}<br>` +
+      targetGeoLine(det);
     box.classList.add('open');
   }
 
@@ -252,10 +268,14 @@ window.SF = window.SF || {};
           .map((d) => {
             const b64 = arrayBufferToBase64(d.crop_jpeg);
             const [x, y, w, h] = d.bbox;
+            const targetGpsHtml =
+              d.target_lat !== null && d.target_lat !== undefined
+                ? `<div><strong>Posizione target:</strong> <a href="${mapsLink(d.target_lat, d.target_lon)}" target="_blank" rel="noopener">${d.target_lat.toFixed(6)}, ${d.target_lon.toFixed(6)}</a>${d.geo_warning ? ' ⚠️ ' + SF.escapeHtml(d.geo_warning) : ''}</div>`
+                : `<div><strong>Posizione target:</strong> non calcolabile${d.geo_note ? ' (' + SF.escapeHtml(d.geo_note) + ')' : ''}</div>`;
             return `<div class="det-card"><img src="data:image/jpeg;base64,${b64}" alt="target rilevato" />
               <div class="det-meta"><div><strong>Confidenza:</strong> ${SF.formatNum(d.confidence)}%</div>
               <div><strong>Copertura area:</strong> ${SF.formatNum(d.fill_ratio)}%</div>
-              <div><strong>Bounding box:</strong> x=${x} y=${y} w=${w} h=${h}</div></div></div>`;
+              <div><strong>Bounding box:</strong> x=${x} y=${y} w=${w} h=${h}</div>${targetGpsHtml}</div></div>`;
           })
           .join('');
         return `<section class="photo-card"><h3>${SF.escapeHtml(r.name)}</h3>
@@ -285,11 +305,21 @@ window.SF = window.SF || {};
   }
 
   function buildCsvReport(results, minConfidence) {
-    const rows = [['foto', 'gps_lat', 'gps_lon', 'gps_altitude_m', 'data_ora', 'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h', 'confidenza_%', 'copertura_area_%']];
+    const rows = [[
+      'foto', 'gps_lat_drone', 'gps_lon_drone', 'gps_altitude_m', 'data_ora',
+      'target_lat', 'target_lon', 'target_geo_note',
+      'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h', 'confidenza_%', 'copertura_area_%',
+    ]];
     results.forEach((r) => {
       (r.detections || []).forEach((d) => {
         if (d.confidence < minConfidence) return;
-        rows.push([r.name, r.gps_lat, r.gps_lon, r.gps_altitude, r.datetime_original, d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3], d.confidence, d.fill_ratio]);
+        const hasTargetGeo = d.target_lat !== null && d.target_lat !== undefined;
+        rows.push([
+          r.name, r.gps_lat, r.gps_lon, r.gps_altitude, r.datetime_original,
+          hasTargetGeo ? d.target_lat : '', hasTargetGeo ? d.target_lon : '',
+          hasTargetGeo ? (d.geo_warning || '') : (d.geo_note || ''),
+          d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3], d.confidence, d.fill_ratio,
+        ]);
       });
     });
     return rows.map((row) => row.map((v) => (v === null || v === undefined ? '' : csvEscape(String(v)))).join(',')).join('\r\n');
