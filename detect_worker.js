@@ -25,6 +25,49 @@ const CONFIG = {
 // sopra) e condivise con l'anteprima live del modulo Calibrazione Colore, cosi'
 // l'anteprima mostra esattamente cio' che questo worker rilevera' in batch.
 
+/**
+ * Filtro geometrico sui blob rilevati (punto 2 della roadmap): scarta i contorni la cui
+ * forma non è plausibile per un indumento/persona vista dall'alto, PRIMA del costoso ritaglio
+ * e ri-mascheramento a piena risoluzione più sotto.
+ *
+ * - Aspect ratio (lato lungo / lato corto del bounding box a scala ridotta: il rapporto è
+ *   invariante rispetto al downscale uniforme, quindi si può controllare qui senza riportare
+ *   le misure a piena risoluzione): scarta forme troppo allungate/irregolari (es. un bordo di
+ *   tetto, un solco, un'ombra lineare) che difficilmente sono un indumento o una persona.
+ * - Area reale in m² (serve il GSD di QUESTA foto, disponibile solo se camera+quota sono
+ *   configurate in Elaborazione Batch): scarta blob troppo piccoli (rumore/riflessi isolati) o
+ *   troppo grandi (terreno, tetto, vegetazione dello stesso colore del profilo). Se il GSD non
+ *   è disponibile per questa foto, il controllo sull'area viene semplicemente saltato — resta
+ *   attivo solo l'aspect ratio, che non richiede alcun dato di quota/camera.
+ *
+ * Le soglie sono tutte configurabili da Elaborazione Batch (config.geomFilter); un valore
+ * assente/non numerico o <= 0 disattiva quel singolo controllo (non l'intero filtro).
+ *
+ * @returns {{ok: boolean, reason: (string|null)}} reason è una delle chiavi usate per il
+ *   riepilogo degli scarti in result.geom_filter_rejected.
+ */
+function passesGeometricFilter(rect, scale, gsdMPerPx, geomFilter) {
+  const w = rect.width, h = rect.height;
+  const longSidePx = Math.max(w, h), shortSidePx = Math.max(1, Math.min(w, h));
+  const aspectRatio = longSidePx / shortSidePx;
+  const maxAspect = geomFilter && geomFilter.maxAspectRatio;
+  if (typeof maxAspect === 'number' && maxAspect > 0 && aspectRatio > maxAspect) {
+    return { ok: false, reason: 'aspect_ratio' };
+  }
+  if (gsdMPerPx && geomFilter) {
+    const areaFullResPx = (w * h) / (scale * scale);
+    const areaM2 = areaFullResPx * gsdMPerPx * gsdMPerPx;
+    const minArea = geomFilter.minAreaM2, maxArea = geomFilter.maxAreaM2;
+    if (typeof minArea === 'number' && minArea > 0 && areaM2 < minArea) {
+      return { ok: false, reason: 'area_troppo_piccola' };
+    }
+    if (typeof maxArea === 'number' && maxArea > 0 && areaM2 > maxArea) {
+      return { ok: false, reason: 'area_troppo_grande' };
+    }
+  }
+  return { ok: true, reason: null };
+}
+
 function matFromImageBitmap(cv, bitmap, targetW, targetH) {
   const canvas = new OffscreenCanvas(targetW, targetH);
   const ctx = canvas.getContext('2d');
@@ -52,6 +95,7 @@ async function processImage(cv, file, profile, config) {
     rel_altitude_m: null, heading_deg: null, heading_source: null, gimbal_pitch_deg: null,
     agl_m: null, agl_source: null, gsd_m_per_px: null,
     detections: [], skipped_reason: null, error: null,
+    geom_filter_rejected: { aspect_ratio: 0, area_troppo_piccola: 0, area_troppo_grande: 0 },
   };
 
   const gps = await readExifGps(file);
@@ -118,7 +162,15 @@ async function processImage(cv, file, profile, config) {
   for (let i = 0; i < contours.size(); i++) {
     const c = contours.get(i);
     const area = cv.contourArea(c);
-    if (area >= minAreaSmall) candidates.push({ area, rect: cv.boundingRect(c) });
+    if (area >= minAreaSmall) {
+      const rect = cv.boundingRect(c);
+      const check = passesGeometricFilter(rect, scale, gsdMPerPx, config.geomFilter);
+      if (check.ok) {
+        candidates.push({ area, rect });
+      } else if (result.geom_filter_rejected[check.reason] !== undefined) {
+        result.geom_filter_rejected[check.reason]++;
+      }
+    }
     c.delete();
   }
   candidates.sort((a, b) => b.area - a.area);
@@ -229,6 +281,7 @@ self.onmessage = async function (e) {
           name: files[i].name, width: 0, height: 0,
           gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
           detections: [], error: String(err && err.message || err),
+          geom_filter_rejected: null,
         },
       });
     }

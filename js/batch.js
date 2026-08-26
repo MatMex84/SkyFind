@@ -38,6 +38,11 @@ window.SF = window.SF || {};
       custom: { sensor_width_mm: 6.3, focal_length_mm: 4.5 },
       fallbackAltitudeM: null,
     },
+    // Filtro geometrico sui blob rilevati (punto 2): scarta forme troppo allungate (aspect
+    // ratio) e, quando il GSD è disponibile per la foto (sezione 3 sopra), aree reali implausibili
+    // per un indumento/persona vista dall'alto. Ogni soglia a null/vuoto disattiva quel singolo
+    // controllo, non l'intero filtro — vedi passesGeometricFilter() in detect_worker.js.
+    geomFilter: { minAreaM2: 0.05, maxAreaM2: 8, maxAspectRatio: 6 },
   };
 
   function filterImages(fileList) {
@@ -165,6 +170,7 @@ window.SF = window.SF || {};
       requireGps: st.requireGps,
       sensor: resolveGeorefSensor(), // per il GSD/posizione GPS del target, non per il rilevamento colore
       fallbackAltitudeM: st.georef.fallbackAltitudeM,
+      geomFilter: st.geomFilter,
     };
 
     const files = st.files;
@@ -234,6 +240,7 @@ window.SF = window.SF || {};
               name: files[gi].name, width: 0, height: 0,
               gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
               detections: [], error: String(e.message || e),
+              geom_filter_rejected: null,
             };
             completedCount++;
           }
@@ -262,6 +269,24 @@ window.SF = window.SF || {};
       })
     );
 
+    // Riepilogo del filtro geometrico (punto 2): quanti blob sono stati scartati e perché,
+    // così l'utente capisce se le soglie in sezione 5 sono troppo/poco severe per questa missione.
+    const geomRejected = { aspect_ratio: 0, area_troppo_piccola: 0, area_troppo_grande: 0 };
+    let geomRejectedTotal = 0;
+    results.forEach((r) => {
+      const g = r.geom_filter_rejected;
+      if (!g) return;
+      for (const k of Object.keys(geomRejected)) {
+        geomRejected[k] += g[k] || 0;
+        geomRejectedTotal += g[k] || 0;
+      }
+    });
+    const GEOM_REASON_LABELS = {
+      aspect_ratio: 'forma troppo allungata',
+      area_troppo_piccola: 'area troppo piccola',
+      area_troppo_grande: 'area troppo grande',
+    };
+
     document.getElementById('batch-progress-wrap').innerHTML = '';
     const out = document.getElementById('batch-results-section');
     out.innerHTML = `
@@ -276,6 +301,13 @@ window.SF = window.SF || {};
         totalDetections
           ? `<p class="sf-caption" style="margin-top:0.6rem;">📍 Posizione GPS calcolata per <strong>${detectionsWithGeo}/${totalDetections}</strong>
              target rilevati.${geoMissingReasons.size ? ' Per gli altri manca: ' + Array.from(geoMissingReasons).map((s) => SF.escapeHtml(s)).join('; ') + '.' : ''}</p>`
+          : ''
+      }
+      ${
+        geomRejectedTotal
+          ? `<p class="sf-caption">📐 Filtro geometrico: <strong>${geomRejectedTotal}</strong> blob scartati prima del ritaglio
+             (${Object.keys(geomRejected).filter((k) => geomRejected[k]).map((k) => `${geomRejected[k]} ${GEOM_REASON_LABELS[k]}`).join(', ')}).
+             Se sembrano troppi (o troppo pochi), regola le soglie nella sezione 5 e riavvia il batch.</p>`
           : ''
       }
       ${
@@ -354,7 +386,29 @@ window.SF = window.SF || {};
         </div>
       </div>
 
-      <h2 class="sf-section">5. Avvia elaborazione</h2>
+      <h2 class="sf-section">5. Filtro geometrico sui blob rilevati</h2>
+      <p class="sf-caption">Dopo il rilevamento del colore, scarta automaticamente le forme che difficilmente
+        sono un indumento o una persona vista dall'alto: troppo allungate, oppure — se camera e quota sono
+        configurate in sezione 3 — con un'area reale troppo piccola (rumore) o troppo grande (terreno,
+        vegetazione dello stesso colore). Sono soglie euristiche, non limiti scientifici: lascia vuoto un
+        campo per disattivare solo quel controllo.</p>
+      <div class="sf-grid-2">
+        <div>
+          <label class="sf-label">Area minima (m²)</label>
+          <input type="number" step="0.01" min="0" id="batch-min-area-m2" value="${st.geomFilter.minAreaM2}" placeholder="es. 0.05">
+        </div>
+        <div>
+          <label class="sf-label">Area massima (m²)</label>
+          <input type="number" step="0.1" min="0" id="batch-max-area-m2" value="${st.geomFilter.maxAreaM2}" placeholder="es. 8">
+        </div>
+      </div>
+      <label class="sf-label" style="margin-top:0.9rem;">Aspect ratio massimo (lato lungo / lato corto)</label>
+      <input type="number" step="0.5" min="1" id="batch-max-aspect-ratio" value="${st.geomFilter.maxAspectRatio}" placeholder="es. 6">
+      <p class="sf-caption">I due campi sull'area richiedono camera e quota configurate in sezione 3: se
+        mancano, per quella foto viene applicato solo il controllo sull'aspect ratio (sempre attivo, non
+        richiede il GSD).</p>
+
+      <h2 class="sf-section">6. Avvia elaborazione</h2>
       <div id="batch-start-section"></div>
       <div id="batch-progress-wrap"></div>
       <div id="batch-results-section"></div>
@@ -372,6 +426,19 @@ window.SF = window.SF || {};
     document.getElementById('batch-fallback-altitude').addEventListener('input', (e) => {
       const v = parseFloat(e.target.value);
       st.georef.fallbackAltitudeM = Number.isFinite(v) && v > 0 ? v : null;
+    });
+
+    document.getElementById('batch-min-area-m2').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.geomFilter.minAreaM2 = Number.isFinite(v) && v > 0 ? v : null;
+    });
+    document.getElementById('batch-max-area-m2').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.geomFilter.maxAreaM2 = Number.isFinite(v) && v > 0 ? v : null;
+    });
+    document.getElementById('batch-max-aspect-ratio').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.geomFilter.maxAspectRatio = Number.isFinite(v) && v > 0 ? v : null;
     });
 
     container.querySelectorAll('input[name="batch-source"]').forEach((r) => {
