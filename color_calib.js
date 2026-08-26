@@ -163,6 +163,58 @@ function computeProfileFromSamples(cv, samples) {
   };
 }
 
+/**
+ * Colore medio CIE-LAB (convenzione OpenCV) dei soli pixel della maschera in una regione — usato
+ * per memorizzare il colore effettivamente rilevato di ogni hit (punto 6: serve da "campione
+ * negativo" quando l'utente segna un rilevamento come falso positivo, per restringere il profilo
+ * lontano da quel colore specifico). Torna null se la maschera è vuota (nessun pixel > 0): può
+ * capitare in rari casi limite di ritaglio/maschera ai bordi — il chiamante deve gestirlo.
+ */
+function meanLabMasked(cv, regionLabMat, maskMat) {
+  const rows = regionLabMat.rows, cols = regionLabMat.cols;
+  const labData = regionLabMat.data;
+  const maskData = maskMat.data;
+  let sumL = 0, sumA = 0, sumB = 0, n = 0;
+  for (let i = 0; i < rows * cols; i++) {
+    if (maskData[i] > 0) {
+      sumL += labData[i * 3]; sumA += labData[i * 3 + 1]; sumB += labData[i * 3 + 2];
+      n++;
+    }
+  }
+  if (n === 0) return null;
+  return [sumL / n, sumA / n, sumB / n];
+}
+
+/**
+ * Punto 6: quando l'utente segna un rilevamento come falso positivo nel Report, il colore medio
+ * EFFETTIVAMENTE rilevato (meanLabMasked sopra) diventa un "campione negativo" — restringiamo la
+ * tolleranza del profilo sul canale con il margine più stretto (quello con cui la modifica minima
+ * esclude quel punto), non su tutti e tre: inRange richiede che TUTTI i canali siano dentro i
+ * limiti, quindi basta escludere su un solo asse per escludere l'intero punto, con il minor impatto
+ * possibile su rilevamenti veri vicini ma non identici a quello segnalato.
+ *
+ * Un pavimento (frazione della tolleranza di base AUTO_TOLERANCE_LAB) impedisce che marcature
+ * ripetute collassino il profilo a una tolleranza pressoché nulla, rendendolo inutilizzabile.
+ */
+const NEG_SAMPLE_MIN_TOLERANCE_MULT = 0.25;
+const NEG_SAMPLE_MARGIN = 1; // unità LAB (0-255): il punto negativo deve restare chiaramente fuori, non sul bordo
+
+function narrowToleranceFromFalsePositive(profile, negativeMeanLab) {
+  const tol = profile.tolerance_lab.slice();
+  const mean = profile.mean_lab;
+  let bestIdx = -1, bestMargin = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const offset = Math.abs(negativeMeanLab[i] - mean[i]);
+    const margin = tol[i] - offset;
+    if (margin < bestMargin) { bestMargin = margin; bestIdx = i; }
+  }
+  if (bestMargin <= 0) return tol; // il campione e' gia' fuori dal profilo su almeno un canale: nulla da restringere
+  const offset = Math.abs(negativeMeanLab[bestIdx] - mean[bestIdx]);
+  const floor = AUTO_TOLERANCE_LAB[bestIdx] * NEG_SAMPLE_MIN_TOLERANCE_MULT;
+  tol[bestIdx] = Math.max(floor, offset - NEG_SAMPLE_MARGIN);
+  return tol;
+}
+
 function hsvBounds(profile) {
   const [h, s, v] = profile.mean_hsv;
   const [th, ts, tv] = profile.tolerance_hsv;

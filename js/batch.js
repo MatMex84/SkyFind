@@ -146,6 +146,81 @@ window.SF = window.SF || {};
   }
 
   // ------------------------------------------------------------- pool di worker
+  /**
+   * Nucleo del pool di worker, senza alcuna dipendenza dal DOM: usato sia dall'avvio iniziale
+   * dell'Elaborazione Batch qui sotto (runBatch, con la propria UI di progresso), sia dal pulsante
+   * "Ri-applica filtro" nel Report (punto 6) — che rielabora lo stesso lotto di foto già in memoria
+   * con un profilo colore aggiornato (dopo aver segnato uno o più falsi positivi), senza dover
+   * riselezionare la cartella né rifare la configurazione. Ritorna una Promise che risolve
+   * nell'array dei risultati (uno per foto, stesso ordine di `files`); `onProgress`, se passato,
+   * viene richiamato dopo ogni foto completata come `onProgress(completedCount, total, resultsSoFar)`
+   * — `resultsSoFar` è l'array risultati stesso (in corso di riempimento), cosi' il chiamante può
+   * mostrare metriche parziali (es. "N con rilevamenti") senza che questa funzione sappia nulla di UI.
+   */
+  SF.runDetectionPoolAsync = function (files, profile, config, onProgress) {
+    return new Promise((resolve) => {
+      const nWorkers = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4, files.length));
+      const chunks = Array.from({ length: nWorkers }, () => []);
+      files.forEach((f, i) => chunks[i % nWorkers].push(f));
+
+      const results = new Array(files.length).fill(null);
+      let completedCount = 0;
+      let workersDone = 0;
+
+      // mappa: worker -> lista di indici globali (nello stesso ordine dei file inviati a quel worker)
+      const chunkGlobalIndices = [];
+      {
+        const perWorkerFiles = Array.from({ length: nWorkers }, () => []);
+        files.forEach((f, i) => perWorkerFiles[i % nWorkers].push(f));
+        for (let w = 0; w < nWorkers; w++) {
+          const idxs = [];
+          for (let i = 0; i < perWorkerFiles[w].length; i++) idxs.push(w + i * nWorkers);
+          chunkGlobalIndices.push(idxs);
+        }
+      }
+
+      function maybeResolve() {
+        if (workersDone < nWorkers) return;
+        resolve(results);
+      }
+
+      for (let w = 0; w < nWorkers; w++) {
+        const worker = new Worker('detect_worker.js');
+        const globalIdxs = chunkGlobalIndices[w];
+        worker.onmessage = (e) => {
+          const data = e.data;
+          if (data.done) {
+            workersDone++;
+            worker.terminate();
+            maybeResolve();
+            return;
+          }
+          results[globalIdxs[data.index]] = data.result;
+          completedCount++;
+          if (onProgress) onProgress(completedCount, files.length, results);
+        };
+        worker.onerror = (e) => {
+          // un worker in errore non deve bloccare l'intero batch: segna i suoi file come errore e prosegui
+          for (const gi of globalIdxs) {
+            if (!results[gi]) {
+              results[gi] = {
+                name: files[gi].name, width: 0, height: 0,
+                gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
+                detections: [], error: String(e.message || e),
+                geom_filter_rejected: null, geom_filter_flagged: null,
+              };
+              completedCount++;
+            }
+          }
+          workersDone++;
+          if (onProgress) onProgress(completedCount, files.length, results);
+          maybeResolve();
+        };
+        worker.postMessage({ type: 'process', files: chunks[w], profile: profile, config: config, jobId: w });
+      }
+    });
+  };
+
   function runBatch() {
     const profileName = document.getElementById('batch-profile-select').value;
     const profile = SF.getProfile(profileName);
@@ -174,83 +249,31 @@ window.SF = window.SF || {};
     };
 
     const files = st.files;
-    const nWorkers = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4, files.length));
-    const chunks = Array.from({ length: nWorkers }, () => []);
-    files.forEach((f, i) => chunks[i % nWorkers].push(f));
-
-    const results = new Array(files.length).fill(null);
-    let completedCount = 0;
-    let workersDone = 0;
     const t0 = performance.now();
 
-    // mappa: worker -> lista di indici globali (nello stesso ordine dei file inviati a quel worker)
-    const chunkGlobalIndices = [];
-    {
-      let cursor = 0;
-      const perWorkerFiles = Array.from({ length: nWorkers }, () => []);
-      files.forEach((f, i) => perWorkerFiles[i % nWorkers].push(f));
-      for (let w = 0; w < nWorkers; w++) {
-        const idxs = [];
-        for (let i = 0; i < perWorkerFiles[w].length; i++) idxs.push(w + i * nWorkers);
-        chunkGlobalIndices.push(idxs);
-      }
-    }
-
-    function updateProgress() {
-      const pct = files.length ? (100 * completedCount) / files.length : 0;
+    function onProgress(completedCount, total, resultsSoFar) {
+      const pct = total ? (100 * completedCount) / total : 0;
       const inner = document.getElementById('batch-progress-inner');
       const text = document.getElementById('batch-progress-text');
       if (inner) inner.style.width = pct.toFixed(1) + '%';
-      const nMatches = results.filter((r) => r && r.detections && r.detections.length).length;
-      if (text) text.textContent = `${completedCount}/${files.length} foto elaborate — ${nMatches} con rilevamenti`;
+      const nMatches = resultsSoFar.filter((r) => r && r.detections && r.detections.length).length;
+      if (text) text.textContent = `${completedCount}/${total} foto elaborate — ${nMatches} con rilevamenti`;
     }
 
-    function finishIfDone() {
-      if (workersDone < nWorkers) return;
+    SF.runDetectionPoolAsync(files, profile, config, onProgress).then((results) => {
       const elapsed = (performance.now() - t0) / 1000;
       st.running = false;
       SF.state.batchResults = results;
       SF.state.batchFiles = files;
       SF.state.batchProfileName = profileName;
+      // Profilo e config effettivi di questa run (non solo il nome): servono al punto 6 nel Report
+      // per "Ri-applica filtro" — rielaborare lo stesso lotto senza riselezionare cartella/impostazioni.
+      SF.state.batchProfile = profile;
+      SF.state.batchConfig = config;
       SF.updateSidebarStatus();
       renderBatchSummary(elapsed);
       renderStartSection();
-    }
-
-    for (let w = 0; w < nWorkers; w++) {
-      const worker = new Worker('detect_worker.js');
-      const globalIdxs = chunkGlobalIndices[w];
-      worker.onmessage = (e) => {
-        const data = e.data;
-        if (data.done) {
-          workersDone++;
-          worker.terminate();
-          finishIfDone();
-          return;
-        }
-        results[globalIdxs[data.index]] = data.result;
-        completedCount++;
-        updateProgress();
-      };
-      worker.onerror = (e) => {
-        // un worker in errore non deve bloccare l'intero batch: segna i suoi file come errore e prosegui
-        for (const gi of globalIdxs) {
-          if (!results[gi]) {
-            results[gi] = {
-              name: files[gi].name, width: 0, height: 0,
-              gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
-              detections: [], error: String(e.message || e),
-              geom_filter_rejected: null, geom_filter_flagged: null,
-            };
-            completedCount++;
-          }
-        }
-        workersDone++;
-        updateProgress();
-        finishIfDone();
-      };
-      worker.postMessage({ type: 'process', files: chunks[w], profile: profile, config: config, jobId: w });
-    }
+    });
   }
 
   function renderBatchSummary(elapsed) {

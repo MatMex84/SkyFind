@@ -8,9 +8,18 @@ window.SF = window.SF || {};
 (function () {
   'use strict';
 
-  const st = { built: false, minConfidence: 0, cropUrls: new Map(), browseIdx: 0, viewMode: 'photo', dedupRadiusM: 7, filterExports: false };
+  const st = {
+    built: false, minConfidence: 0, cropUrls: new Map(), browseIdx: 0, viewMode: 'photo', dedupRadiusM: 7, filterExports: false,
+    // Punto 6 — "falso positivo": disattivato di default (impostazione avanzata, opt-in) perché è
+    // un'azione che RIMUOVE davvero un rilevamento da schede ed export (diversa dal filtro per
+    // punteggio sopra, che non cancella mai nulla) — va attivata consapevolmente prima di comparire.
+    reviewMode: false,
+    falsePositiveLog: [], // {result, det, idx} nell'ordine in cui sono stati rimossi, per "annulla ultima eliminazione"
+    profileDirty: false, // true se SF.state.batchProfile e' stato ristretto in memoria ma non ancora salvato
+  };
   const fileUrlCache = new WeakMap();
   let browseItems = []; // [{result, dets, file}], costruito all'apertura della modalita' Sfoglia
+  let lightboxCurrent = null; // { det, result } del rilevamento aperto nella lightbox — per il pulsante falso positivo
 
   function cropUrl(det) {
     if (!st.cropUrls.has(det)) {
@@ -209,15 +218,142 @@ window.SF = window.SF || {};
     return `🔍 ${SF.escapeHtml(det.geom_warning)}`;
   }
 
-  function openLightbox(det, photoName) {
+  function openLightbox(det, result) {
     const box = document.getElementById('sf-lightbox');
+    lightboxCurrent = { det, result };
     document.getElementById('sf-lightbox-img').src = cropUrl(det);
     const shapeLine = shapeWarningLine(det);
     document.getElementById('sf-lightbox-caption').innerHTML =
-      `${SF.escapeHtml(photoName)} — Confidenza: <strong>${SF.formatNum(det.confidence)}%</strong> · ` +
+      `${SF.escapeHtml(result.name)} — Confidenza: <strong>${SF.formatNum(det.confidence)}%</strong> · ` +
       `Area: ${SF.formatNum(det.fill_ratio)}% · bbox: x=${det.bbox[0]} y=${det.bbox[1]} w=${det.bbox[2]} h=${det.bbox[3]}<br>` +
       targetGeoLine(det) + (shapeLine ? `<br>${shapeLine}` : '');
+    const fpBtn = document.getElementById('sf-lightbox-fp-btn');
+    if (fpBtn) fpBtn.style.display = st.reviewMode ? 'inline-block' : 'none';
     box.classList.add('open');
+  }
+
+  // ------------------------------------------------------------- punto 6: "falso positivo"
+  /**
+   * Rimuove DAVVERO il rilevamento da schede/export (a differenza del filtro per punteggio, che
+   * non nasconde mai nulla dai dati) — è una scelta esplicita dell'utente su UN rilevamento preciso,
+   * non un taglio automatico globale. Se il colore effettivamente rilevato è disponibile
+   * (detected_mean_lab, punto 5/6 in detect_worker.js), viene usato come campione negativo per
+   * restringere in memoria la tolleranza del profilo colore corrente — non salvato in automatico:
+   * l'utente decide se renderlo permanente col pulsante dedicato nel pannello di revisione.
+   */
+  function markFalsePositive(det, result) {
+    const idx = result.detections.indexOf(det);
+    if (idx === -1) return;
+    result.detections.splice(idx, 1);
+
+    const profile = SF.state.batchProfile;
+    if (profile && det.detected_mean_lab) {
+      const before = profile.tolerance_lab.slice();
+      const narrowed = narrowToleranceFromFalsePositive(profile, det.detected_mean_lab);
+      if (narrowed.some((v, i) => v !== before[i])) {
+        profile.tolerance_lab = narrowed;
+        st.profileDirty = true;
+      }
+    }
+    st.falsePositiveLog.push({ result, det, idx });
+    render();
+  }
+
+  /** Ripristina l'ultimo rilevamento rimosso. NON riallarga la tolleranza del profilo (che nel
+   *  frattempo può essere già stata salvata, o ulteriormente ristretta da altre marcature): per
+   *  tornare alla tolleranza originale basta non salvare, o ricaricare il profilo da Calibrazione. */
+  function undoLastFalsePositive() {
+    const entry = st.falsePositiveLog.pop();
+    if (!entry) return;
+    const pos = Math.min(entry.idx, entry.result.detections.length);
+    entry.result.detections.splice(pos, 0, entry.det);
+    render();
+  }
+
+  /** "Ri-applica filtro" (punto 6): rielabora lo stesso lotto di foto già in memoria (SF.state.
+   *  batchFiles) con il profilo aggiornato, riusando lo stesso pool di worker dell'Elaborazione
+   *  Batch (SF.runDetectionPoolAsync) — senza dover riselezionare la cartella né rifare la
+   *  configurazione ("senza I/O completo" nel senso della roadmap: nessun nuovo giro nella UI di
+   *  Elaborazione Batch, solo la rilettura/decodifica delle foto già note, inevitabile perché la
+   *  maschera colore va ricalcolata con la nuova tolleranza). Sostituisce interamente i risultati:
+   *  l'elenco "annulla" del pannello di revisione viene azzerato perché si riferirebbe a oggetti
+   *  detection ormai sostituiti da rilevamenti nuovi.
+   */
+  function rerunWithUpdatedProfile() {
+    const files = SF.state.batchFiles;
+    const profile = SF.state.batchProfile;
+    const config = SF.state.batchConfig;
+    if (!files || !files.length || !profile || !config) return;
+    if (
+      !confirm(
+        'Rielaborare tutte le foto con il profilo colore aggiornato? Sostituirà i rilevamenti attuali ' +
+          '(quelli già segnati come falso positivo restano esclusi solo se il nuovo profilo non li rileva più) ' +
+          "e azzererà l'elenco \"annulla\" di questa sessione."
+      )
+    ) {
+      return;
+    }
+    const progressEl = document.getElementById('report-rerun-progress');
+    if (progressEl) progressEl.textContent = `Rielaborazione in corso… 0/${files.length}`;
+    SF.runDetectionPoolAsync(files, profile, config, (done, total) => {
+      const el = document.getElementById('report-rerun-progress');
+      if (el) el.textContent = `Rielaborazione in corso… ${done}/${total}`;
+    }).then((results) => {
+      SF.state.batchResults = results;
+      st.falsePositiveLog = [];
+      render();
+    });
+  }
+
+  function renderReviewPanel() {
+    const panel = document.getElementById('report-review-panel');
+    if (!panel) return;
+    if (!st.reviewMode) {
+      panel.innerHTML = '';
+      return;
+    }
+    const canRerun = !!(SF.state.batchFiles && SF.state.batchFiles.length && SF.state.batchProfile);
+    panel.innerHTML = `
+      <div class="sf-info" style="margin-top:0.6rem;">
+        ${
+          st.falsePositiveLog.length
+            ? `<div>${st.falsePositiveLog.length} rilevamento/i segnato/i come falso positivo in questa sessione —
+               <span class="sf-link-btn" id="report-fp-undo">annulla ultima eliminazione</span></div>`
+            : '<div>Nessun rilevamento segnato come falso positivo finora in questa sessione.</div>'
+        }
+        ${
+          st.profileDirty
+            ? `<div style="margin-top:0.5rem;">🔧 Il profilo colore <strong>${SF.escapeHtml(SF.state.batchProfileName || '')}</strong>
+               è stato ristretto in memoria a partire dai falsi positivi segnalati, non ancora salvato.
+               <button class="sf-btn" id="report-fp-save-profile" style="margin-left:0.4rem;">💾 Salva profilo aggiornato</button></div>`
+            : ''
+        }
+        ${
+          canRerun
+            ? `<div style="margin-top:0.6rem;">
+                 <button class="sf-btn" id="report-fp-rerun">🔁 Ri-applica filtro su tutte le foto</button>
+                 <span class="sf-caption" id="report-rerun-progress"></span>
+                 <p class="sf-caption">Rielabora tutte le foto già caricate con il profilo aggiornato, senza dover
+                   riselezionare la cartella — utile dopo aver segnato uno o più falsi positivi, per vedere
+                   subito l'effetto sull'intero lotto.</p>
+               </div>`
+            : ''
+        }
+      </div>
+    `;
+    const undoBtn = document.getElementById('report-fp-undo');
+    if (undoBtn) undoBtn.addEventListener('click', undoLastFalsePositive);
+    const saveBtn = document.getElementById('report-fp-save-profile');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => {
+        SF.saveProfile(SF.state.batchProfile);
+        st.profileDirty = false;
+        SF.updateSidebarStatus();
+        renderReviewPanel();
+      });
+    }
+    const rerunBtn = document.getElementById('report-fp-rerun');
+    if (rerunBtn) rerunBtn.addEventListener('click', rerunWithUpdatedProfile);
   }
 
   function renderPhotoCard(result, file, dets, browseIndex) {
@@ -278,7 +414,7 @@ window.SF = window.SF || {};
       previewEl.appendChild(img);
       previewEl.appendChild(canvas);
       previewEl.addEventListener('click', () => {
-        if (dets.length) openLightbox(dets[Math.max(0, selectedIdx)], result.name);
+        if (dets.length) openLightbox(dets[Math.max(0, selectedIdx)], result);
       });
       window.addEventListener('resize', () => {
         if (img.complete && img.naturalWidth) drawCircles(canvas, img, dets, selectedIdx);
@@ -303,7 +439,7 @@ window.SF = window.SF || {};
           const img = previewEl.querySelector('img');
           const canvas = previewEl.querySelector('canvas');
           if (img && canvas && img.naturalWidth) drawCircles(canvas, img, dets, selectedIdx);
-          openLightbox(d, result.name);
+          openLightbox(d, result);
         });
         thumbsEl.appendChild(thumb);
       });
@@ -515,6 +651,18 @@ window.SF = window.SF || {};
           <p class="sf-caption" style="color:var(--accent-warm, #e0a030);">⚠️ Attiva questa casella solo se vuoi
             consapevolmente escludere dei rilevamenti dal report finale (es. per condividere solo i più probabili):
             un target reale con punteggio basso, se questa casella è attiva, non comparirà nel file esportato.</p>
+
+          <hr style="border-color:var(--border); margin: 0.8rem 0;">
+          <label class="sf-caption" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+            <input type="checkbox" id="report-review-mode-checkbox" ${st.reviewMode ? 'checked' : ''}>
+            Abilita "🚫 falso positivo" su ogni rilevamento (modalità revisione)
+          </label>
+          <p class="sf-caption">Diverso dal filtro per punteggio sopra: qui stai dicendo esplicitamente "questo NON
+            è il target" su UN rilevamento preciso che hai guardato da vicino — non un ordinamento, una tua scelta
+            consapevole. Quando confermi (nella lightbox, aprendo il rilevamento): viene rimosso davvero da schede
+            ed export, e il profilo colore viene ristretto in memoria per essere più selettivo su colori simili
+            (mai salvato automaticamente). Puoi annullare l'ultima eliminazione dal pannello qui sotto.</p>
+          <div id="report-review-panel"></div>
         </div>
       </details>
       <div style="margin: 0.8rem 0 0.4rem;">
@@ -567,6 +715,10 @@ window.SF = window.SF || {};
       st.filterExports = e.target.checked;
       renderFiltered(); // aggiorna la nota sotto i pulsanti di export
     });
+    document.getElementById('report-review-mode-checkbox').addEventListener('change', (e) => {
+      st.reviewMode = e.target.checked;
+      renderReviewPanel();
+    });
     document.getElementById('report-export-html').addEventListener('click', () => {
       const exportThreshold = getExportThreshold();
       if (st.viewMode === 'target') {
@@ -591,6 +743,7 @@ window.SF = window.SF || {};
     document.getElementById('report-browse-btn').addEventListener('click', () => openBrowse(0));
 
     renderFiltered();
+    renderReviewPanel();
   }
 
   /** Elenco foto+detection con punteggio >= soglia, ordinato per punteggio massimo decrescente
@@ -665,7 +818,7 @@ window.SF = window.SF || {};
     thumb.title = item.result.name;
     const flagBadge = d.geom_warning ? `<div class="sf-thumb-flag" title="${SF.escapeHtml(d.geom_warning)}">🔍</div>` : '';
     thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>${flagBadge}`;
-    thumb.addEventListener('click', () => openLightbox(d, item.result.name));
+    thumb.addEventListener('click', () => openLightbox(d, item.result));
     return thumb;
   }
 
@@ -776,6 +929,7 @@ window.SF = window.SF || {};
       <button class="sf-lightbox-close" id="sf-lightbox-close">×</button>
       <img id="sf-lightbox-img">
       <div class="sf-lightbox-caption" id="sf-lightbox-caption"></div>
+      <button class="sf-btn" id="sf-lightbox-fp-btn" style="display:none; margin-top:0.6rem;">🚫 Segna come falso positivo</button>
     `;
     document.body.appendChild(box);
     box.addEventListener('click', (e) => {
@@ -784,6 +938,25 @@ window.SF = window.SF || {};
     document.getElementById('sf-lightbox-close').addEventListener('click', () => box.classList.remove('open'));
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') box.classList.remove('open');
+    });
+    // Pulsante "falso positivo" (punto 6): mostrato solo in modalità revisione (impostazioni
+    // avanzate del Report). Un solo listener qui, riusato per ogni apertura della lightbox tramite
+    // la variabile di chiusura lightboxCurrent, aggiornata da openLightbox().
+    document.getElementById('sf-lightbox-fp-btn').addEventListener('click', () => {
+      if (!lightboxCurrent) return;
+      if (
+        !confirm(
+          'Segnare questo rilevamento come falso positivo?\n\n' +
+            'Verrà rimosso da schede ed export, e il profilo colore verrà ristretto in memoria per essere ' +
+            'più selettivo su colori simili (non salvato automaticamente sul profilo).'
+        )
+      ) {
+        return;
+      }
+      const { det, result } = lightboxCurrent;
+      lightboxCurrent = null;
+      box.classList.remove('open');
+      markFalsePositive(det, result);
     });
   }
 

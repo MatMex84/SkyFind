@@ -252,6 +252,10 @@ async function processImage(cv, file, profile, config) {
     cv.cvtColor(cropRgb, cropLab, cv.COLOR_RGB2Lab);
 
     const confidence = colorConfidence(cv, cropLab, cropMask, profile);
+    // Colore medio effettivamente rilevato (punto 6): usato SOLO se l'utente segna questo
+    // rilevamento come falso positivo nel Report, come campione negativo per restringere il
+    // profilo — vedi narrowToleranceFromFalsePositive() in color_calib.js.
+    const detectedMeanLab = meanLabMasked(cv, cropLab, cropMask);
     let filled = 0;
     const md = cropMask.data;
     for (let i = 0; i < md.length; i++) if (md[i] > 0) filled++;
@@ -300,6 +304,7 @@ async function processImage(cv, file, profile, config) {
       geo_warning: geoWarning,
       geom_warning: geomWarning,
       heading_source: result.heading_source,
+      detected_mean_lab: detectedMeanLab,
     });
 
     cropRgb.delete(); cropMask.delete(); cropLab.delete();
