@@ -26,47 +26,72 @@ const CONFIG = {
 // l'anteprima mostra esattamente cio' che questo worker rilevera' in batch.
 
 /**
- * Filtro geometrico sui blob rilevati (punto 2 della roadmap): scarta i contorni la cui
- * forma non è plausibile per un indumento/persona vista dall'alto, PRIMA del costoso ritaglio
- * e ri-mascheramento a piena risoluzione più sotto.
+ * Filtro geometrico sui blob rilevati (punto 2 della roadmap), PRIMA del costoso ritaglio e
+ * ri-mascheramento a piena risoluzione più sotto.
  *
- * - Aspect ratio (lato lungo / lato corto del bounding box a scala ridotta: il rapporto è
- *   invariante rispetto al downscale uniforme, quindi si può controllare qui senza riportare
- *   le misure a piena risoluzione): scarta forme troppo allungate/irregolari (es. un bordo di
- *   tetto, un solco, un'ombra lineare) che difficilmente sono un indumento o una persona.
- * - Area reale in m² (serve il GSD di QUESTA foto, disponibile solo se camera+quota sono
- *   configurate in Elaborazione Batch): scarta blob troppo piccoli (rumore/riflessi isolati) o
- *   troppo grandi (terreno, tetto, vegetazione dello stesso colore del profilo). Se il GSD non
- *   è disponibile per questa foto, il controllo sull'area viene semplicemente saltato — resta
- *   attivo solo l'aspect ratio, che non richiede alcun dato di quota/camera.
+ * Un target SAR è spesso parzialmente coperto (vegetazione, ombre, altri ostacoli): un pezzo di
+ * indumento visibile a malapena può essere piccolo o avere una forma insolita/allungata pur
+ * essendo un rilevamento vero. Scartare in automatico su queste basi rischierebbe falsi negativi
+ * (il caso peggiore in un contesto di ricerca e soccorso). Per questo il filtro ha DUE livelli:
  *
- * Le soglie sono tutte configurabili da Elaborazione Batch (config.geomFilter); un valore
- * assente/non numerico o <= 0 disattiva quel singolo controllo (non l'intero filtro).
+ * - SCARTO (tier 'reject'): solo per casi dove è quasi certo che non sia un target, anche
+ *   parziale — un'area REALE (via GSD) superiore al massimo configurato (tipicamente terreno,
+ *   tetto o vegetazione estesa dello stesso colore: l'occlusione può solo ridurre l'area visibile
+ *   di un target vero, mai aumentarla oltre la sua sagoma), oppure un aspect ratio molto oltre la
+ *   soglia configurata (HARD_ASPECT_MULT × la soglia: un artefatto lineare come un bordo di tetto
+ *   o un solco, non un frammento di indumento).
+ * - SEGNALAZIONE (tier 'flag'): area sotto il minimo configurato, o aspect ratio oltre la soglia
+ *   ma sotto la soglia dura. Il blob NON viene scartato: resta tra i rilevamenti, con un avviso
+ *   da verificare a video (vedi geom_warning nel Report) — è il caso tipico di un target
+ *   parzialmente coperto.
  *
- * @returns {{ok: boolean, reason: (string|null)}} reason è una delle chiavi usate per il
- *   riepilogo degli scarti in result.geom_filter_rejected.
+ * L'area richiede il GSD di questa foto (disponibile solo se camera+quota sono configurate in
+ * Elaborazione Batch); se manca, viene valutato solo l'aspect ratio. Le soglie sono configurabili
+ * da Elaborazione Batch (config.geomFilter); un valore assente/non numerico o <= 0 disattiva quel
+ * singolo controllo (non l'intero filtro).
+ *
+ * @returns {{tier: ('ok'|'flag'|'reject'), rejectReason: (string|null), flags: string[]}}
  */
-function passesGeometricFilter(rect, scale, gsdMPerPx, geomFilter) {
+const HARD_ASPECT_RATIO_MULT = 2.5;
+
+function evaluateGeometricFilter(rect, scale, gsdMPerPx, geomFilter) {
   const w = rect.width, h = rect.height;
   const longSidePx = Math.max(w, h), shortSidePx = Math.max(1, Math.min(w, h));
   const aspectRatio = longSidePx / shortSidePx;
-  const maxAspect = geomFilter && geomFilter.maxAspectRatio;
-  if (typeof maxAspect === 'number' && maxAspect > 0 && aspectRatio > maxAspect) {
-    return { ok: false, reason: 'aspect_ratio' };
+  const softMaxAspect = geomFilter && geomFilter.maxAspectRatio;
+
+  if (typeof softMaxAspect === 'number' && softMaxAspect > 0) {
+    const hardMaxAspect = softMaxAspect * HARD_ASPECT_RATIO_MULT;
+    if (aspectRatio > hardMaxAspect) return { tier: 'reject', rejectReason: 'aspect_ratio_estremo', flags: [] };
   }
+
+  let areaM2 = null;
   if (gsdMPerPx && geomFilter) {
     const areaFullResPx = (w * h) / (scale * scale);
-    const areaM2 = areaFullResPx * gsdMPerPx * gsdMPerPx;
-    const minArea = geomFilter.minAreaM2, maxArea = geomFilter.maxAreaM2;
-    if (typeof minArea === 'number' && minArea > 0 && areaM2 < minArea) {
-      return { ok: false, reason: 'area_troppo_piccola' };
-    }
+    areaM2 = areaFullResPx * gsdMPerPx * gsdMPerPx;
+    const maxArea = geomFilter.maxAreaM2;
     if (typeof maxArea === 'number' && maxArea > 0 && areaM2 > maxArea) {
-      return { ok: false, reason: 'area_troppo_grande' };
+      return { tier: 'reject', rejectReason: 'area_troppo_grande', flags: [] };
     }
   }
-  return { ok: true, reason: null };
+
+  const flags = [];
+  if (typeof softMaxAspect === 'number' && softMaxAspect > 0 && aspectRatio > softMaxAspect) {
+    flags.push('aspect_ratio');
+  }
+  if (areaM2 !== null) {
+    const minArea = geomFilter.minAreaM2;
+    if (typeof minArea === 'number' && minArea > 0 && areaM2 < minArea) {
+      flags.push('area_piccola');
+    }
+  }
+  return { tier: flags.length ? 'flag' : 'ok', rejectReason: null, flags };
 }
+
+const GEOM_FLAG_LABELS = {
+  aspect_ratio: 'forma insolita/allungata: possibile indumento o persona parzialmente coperti nella foto — verificare',
+  area_piccola: 'area rilevata piccola: possibile rilevamento parziale (target parzialmente coperto) — verificare',
+};
 
 function matFromImageBitmap(cv, bitmap, targetW, targetH) {
   const canvas = new OffscreenCanvas(targetW, targetH);
@@ -95,7 +120,11 @@ async function processImage(cv, file, profile, config) {
     rel_altitude_m: null, heading_deg: null, heading_source: null, gimbal_pitch_deg: null,
     agl_m: null, agl_source: null, gsd_m_per_px: null,
     detections: [], skipped_reason: null, error: null,
-    geom_filter_rejected: { aspect_ratio: 0, area_troppo_piccola: 0, area_troppo_grande: 0 },
+    // Scarti automatici (casi quasi certi di non-target, vedi evaluateGeometricFilter sopra) e
+    // segnalazioni (blob tenuti nei risultati ma con un avviso da verificare, es. possibile
+    // occlusione parziale) — due cose diverse, non sommarle nel riepilogo batch.
+    geom_filter_rejected: { aspect_ratio_estremo: 0, area_troppo_grande: 0 },
+    geom_filter_flagged: { aspect_ratio: 0, area_piccola: 0 },
   };
 
   const gps = await readExifGps(file);
@@ -164,11 +193,13 @@ async function processImage(cv, file, profile, config) {
     const area = cv.contourArea(c);
     if (area >= minAreaSmall) {
       const rect = cv.boundingRect(c);
-      const check = passesGeometricFilter(rect, scale, gsdMPerPx, config.geomFilter);
-      if (check.ok) {
-        candidates.push({ area, rect });
-      } else if (result.geom_filter_rejected[check.reason] !== undefined) {
-        result.geom_filter_rejected[check.reason]++;
+      const check = evaluateGeometricFilter(rect, scale, gsdMPerPx, config.geomFilter);
+      if (check.tier === 'reject') {
+        if (result.geom_filter_rejected[check.rejectReason] !== undefined) {
+          result.geom_filter_rejected[check.rejectReason]++;
+        }
+      } else {
+        candidates.push({ area, rect, geomFlags: check.flags });
       }
     }
     c.delete();
@@ -236,6 +267,12 @@ async function processImage(cv, file, profile, config) {
         ? "il target si proietta oltre l'orizzonte apparente per questo scatto molto obliquo: posizione non calcolabile in modo affidabile"
         : null;
 
+    const geomFlags = cand.geomFlags || [];
+    geomFlags.forEach((f) => {
+      if (result.geom_filter_flagged[f] !== undefined) result.geom_filter_flagged[f]++;
+    });
+    const geomWarning = geomFlags.length ? geomFlags.map((f) => GEOM_FLAG_LABELS[f]).join('; ') : null;
+
     result.detections.push({
       bbox: [fx, fy, fw, fh],
       confidence: Math.round(confidence * 10) / 10,
@@ -245,6 +282,7 @@ async function processImage(cv, file, profile, config) {
       target_lon: targetLon,
       geo_note: finalGeoNote,
       geo_warning: geoWarning,
+      geom_warning: geomWarning,
       heading_source: result.heading_source,
     });
 
@@ -281,7 +319,7 @@ self.onmessage = async function (e) {
           name: files[i].name, width: 0, height: 0,
           gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
           detections: [], error: String(err && err.message || err),
-          geom_filter_rejected: null,
+          geom_filter_rejected: null, geom_filter_flagged: null,
         },
       });
     }

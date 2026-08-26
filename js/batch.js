@@ -240,7 +240,7 @@ window.SF = window.SF || {};
               name: files[gi].name, width: 0, height: 0,
               gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
               detections: [], error: String(e.message || e),
-              geom_filter_rejected: null,
+              geom_filter_rejected: null, geom_filter_flagged: null,
             };
             completedCount++;
           }
@@ -269,22 +269,35 @@ window.SF = window.SF || {};
       })
     );
 
-    // Riepilogo del filtro geometrico (punto 2): quanti blob sono stati scartati e perché,
-    // così l'utente capisce se le soglie in sezione 5 sono troppo/poco severe per questa missione.
-    const geomRejected = { aspect_ratio: 0, area_troppo_piccola: 0, area_troppo_grande: 0 };
-    let geomRejectedTotal = 0;
+    // Riepilogo del filtro geometrico (punto 2): scarti automatici (casi quasi certi di non-target)
+    // e segnalazioni (blob tenuti nei risultati ma con un avviso, tipicamente possibile occlusione
+    // parziale del target) — vedi evaluateGeometricFilter() in detect_worker.js. Tenute separate:
+    // sommarle darebbe l'impressione che vengano tutte scartate, mentre le segnalazioni restano
+    // visibili e vanno solo verificate a video.
+    const geomRejected = { aspect_ratio_estremo: 0, area_troppo_grande: 0 };
+    const geomFlagged = { aspect_ratio: 0, area_piccola: 0 };
+    let geomRejectedTotal = 0, geomFlaggedTotal = 0;
     results.forEach((r) => {
-      const g = r.geom_filter_rejected;
-      if (!g) return;
-      for (const k of Object.keys(geomRejected)) {
-        geomRejected[k] += g[k] || 0;
-        geomRejectedTotal += g[k] || 0;
+      if (r.geom_filter_rejected) {
+        for (const k of Object.keys(geomRejected)) {
+          geomRejected[k] += r.geom_filter_rejected[k] || 0;
+          geomRejectedTotal += r.geom_filter_rejected[k] || 0;
+        }
+      }
+      if (r.geom_filter_flagged) {
+        for (const k of Object.keys(geomFlagged)) {
+          geomFlagged[k] += r.geom_filter_flagged[k] || 0;
+          geomFlaggedTotal += r.geom_filter_flagged[k] || 0;
+        }
       }
     });
-    const GEOM_REASON_LABELS = {
-      aspect_ratio: 'forma troppo allungata',
-      area_troppo_piccola: 'area troppo piccola',
+    const GEOM_REJECT_LABELS = {
+      aspect_ratio_estremo: 'forma estremamente allungata (artefatto)',
       area_troppo_grande: 'area troppo grande',
+    };
+    const GEOM_FLAG_LABELS_SUMMARY = {
+      aspect_ratio: 'forma allungata',
+      area_piccola: 'area piccola',
     };
 
     document.getElementById('batch-progress-wrap').innerHTML = '';
@@ -305,9 +318,16 @@ window.SF = window.SF || {};
       }
       ${
         geomRejectedTotal
-          ? `<p class="sf-caption">📐 Filtro geometrico: <strong>${geomRejectedTotal}</strong> blob scartati prima del ritaglio
-             (${Object.keys(geomRejected).filter((k) => geomRejected[k]).map((k) => `${geomRejected[k]} ${GEOM_REASON_LABELS[k]}`).join(', ')}).
-             Se sembrano troppi (o troppo pochi), regola le soglie nella sezione 5 e riavvia il batch.</p>`
+          ? `<p class="sf-caption">📐 Filtro geometrico: <strong>${geomRejectedTotal}</strong> blob scartati automaticamente prima del ritaglio
+             (${Object.keys(geomRejected).filter((k) => geomRejected[k]).map((k) => `${geomRejected[k]} ${GEOM_REJECT_LABELS[k]}`).join(', ')}) — casi quasi certi di non-target
+             (terreno/vegetazione estesa, artefatti lineari). Se sembrano troppi, allarga le soglie nella sezione 5.</p>`
+          : ''
+      }
+      ${
+        geomFlaggedTotal
+          ? `<p class="sf-caption">🔍 <strong>${geomFlaggedTotal}</strong> rilevamenti segnalati per revisione, ma NON scartati
+             (${Object.keys(geomFlagged).filter((k) => geomFlagged[k]).map((k) => `${geomFlagged[k]} ${GEOM_FLAG_LABELS_SUMMARY[k]}`).join(', ')}) —
+             tipico di un target parzialmente coperto: controllali comunque nel Report.</p>`
           : ''
       }
       ${
@@ -387,26 +407,28 @@ window.SF = window.SF || {};
       </div>
 
       <h2 class="sf-section">5. Filtro geometrico sui blob rilevati</h2>
-      <p class="sf-caption">Dopo il rilevamento del colore, scarta automaticamente le forme che difficilmente
-        sono un indumento o una persona vista dall'alto: troppo allungate, oppure — se camera e quota sono
-        configurate in sezione 3 — con un'area reale troppo piccola (rumore) o troppo grande (terreno,
-        vegetazione dello stesso colore). Sono soglie euristiche, non limiti scientifici: lascia vuoto un
-        campo per disattivare solo quel controllo.</p>
+      <p class="sf-caption">Un target SAR è spesso parzialmente coperto (vegetazione, ombre, altri ostacoli):
+        un pezzo di indumento a malapena visibile può risultare piccolo o di forma insolita pur essendo un
+        rilevamento vero. Per questo le soglie qui sotto <strong>non scartano</strong> i casi dubbi: li tengono
+        nei risultati con un avviso "da verificare". Viene scartato in automatico solo ciò che è quasi
+        certamente non un target — un'area reale oltre il massimo (terreno/tetto/vegetazione estesa) o una
+        forma estremamente allungata, ben oltre queste soglie (tipicamente un artefatto lineare, non un
+        frammento di indumento).</p>
       <div class="sf-grid-2">
         <div>
-          <label class="sf-label">Area minima (m²)</label>
+          <label class="sf-label">Area minima (m²) — solo segnalazione</label>
           <input type="number" step="0.01" min="0" id="batch-min-area-m2" value="${st.geomFilter.minAreaM2}" placeholder="es. 0.05">
         </div>
         <div>
-          <label class="sf-label">Area massima (m²)</label>
+          <label class="sf-label">Area massima (m²) — scarta</label>
           <input type="number" step="0.1" min="0" id="batch-max-area-m2" value="${st.geomFilter.maxAreaM2}" placeholder="es. 8">
         </div>
       </div>
-      <label class="sf-label" style="margin-top:0.9rem;">Aspect ratio massimo (lato lungo / lato corto)</label>
+      <label class="sf-label" style="margin-top:0.9rem;">Aspect ratio massimo (lato lungo / lato corto) — oltre segnala, oltre 2,5× scarta</label>
       <input type="number" step="0.5" min="1" id="batch-max-aspect-ratio" value="${st.geomFilter.maxAspectRatio}" placeholder="es. 6">
-      <p class="sf-caption">I due campi sull'area richiedono camera e quota configurate in sezione 3: se
-        mancano, per quella foto viene applicato solo il controllo sull'aspect ratio (sempre attivo, non
-        richiede il GSD).</p>
+      <p class="sf-caption">I campi sull'area richiedono camera e quota configurate in sezione 3: se mancano,
+        per quella foto viene valutato solo l'aspect ratio (non richiede il GSD). Lascia vuoto un campo per
+        disattivare solo quel controllo.</p>
 
       <h2 class="sf-section">6. Avvia elaborazione</h2>
       <div id="batch-start-section"></div>

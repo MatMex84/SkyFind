@@ -148,13 +148,21 @@ window.SF = window.SF || {};
     return `📍 target: posizione non calcolabile${det.geo_note ? ' (' + SF.escapeHtml(det.geo_note) + ')' : ''}`;
   }
 
+  /** Riga di avviso sulla forma del blob (filtro geometrico, punto 2): non un errore, solo un
+   *  invito a verificare a video — tipico di un target parzialmente coperto nella foto. */
+  function shapeWarningLine(det) {
+    if (!det.geom_warning) return '';
+    return `🔍 ${SF.escapeHtml(det.geom_warning)}`;
+  }
+
   function openLightbox(det, photoName) {
     const box = document.getElementById('sf-lightbox');
     document.getElementById('sf-lightbox-img').src = cropUrl(det);
+    const shapeLine = shapeWarningLine(det);
     document.getElementById('sf-lightbox-caption').innerHTML =
       `${SF.escapeHtml(photoName)} — Confidenza: <strong>${SF.formatNum(det.confidence)}%</strong> · ` +
       `Area: ${SF.formatNum(det.fill_ratio)}% · bbox: x=${det.bbox[0]} y=${det.bbox[1]} w=${det.bbox[2]} h=${det.bbox[3]}<br>` +
-      targetGeoLine(det);
+      targetGeoLine(det) + (shapeLine ? `<br>${shapeLine}` : '');
     box.classList.add('open');
   }
 
@@ -232,7 +240,8 @@ window.SF = window.SF || {};
         const idxInOriginal = dets.indexOf(d);
         const thumb = document.createElement('div');
         thumb.className = 'sf-thumb';
-        thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>`;
+        const flagBadge = d.geom_warning ? `<div class="sf-thumb-flag" title="${SF.escapeHtml(d.geom_warning)}">🔍</div>` : '';
+        thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>${flagBadge}`;
         thumb.addEventListener('click', () => {
           selectedIdx = idxInOriginal;
           thumbsEl.querySelectorAll('.sf-thumb').forEach((t) => t.classList.remove('selected'));
@@ -272,10 +281,11 @@ window.SF = window.SF || {};
               d.target_lat !== null && d.target_lat !== undefined
                 ? `<div><strong>Posizione target:</strong> <a href="${mapsLink(d.target_lat, d.target_lon)}" target="_blank" rel="noopener">${d.target_lat.toFixed(6)}, ${d.target_lon.toFixed(6)}</a>${d.geo_warning ? ' ⚠️ ' + SF.escapeHtml(d.geo_warning) : ''}</div>`
                 : `<div><strong>Posizione target:</strong> non calcolabile${d.geo_note ? ' (' + SF.escapeHtml(d.geo_note) + ')' : ''}</div>`;
+            const shapeWarningHtml = d.geom_warning ? `<div>🔍 ${SF.escapeHtml(d.geom_warning)}</div>` : '';
             return `<div class="det-card"><img src="data:image/jpeg;base64,${b64}" alt="target rilevato" />
               <div class="det-meta"><div><strong>Confidenza:</strong> ${SF.formatNum(d.confidence)}%</div>
               <div><strong>Copertura area:</strong> ${SF.formatNum(d.fill_ratio)}%</div>
-              <div><strong>Bounding box:</strong> x=${x} y=${y} w=${w} h=${h}</div>${targetGpsHtml}</div></div>`;
+              <div><strong>Bounding box:</strong> x=${x} y=${y} w=${w} h=${h}</div>${targetGpsHtml}${shapeWarningHtml}</div></div>`;
           })
           .join('');
         return `<section class="photo-card"><h3>${SF.escapeHtml(r.name)}</h3>
@@ -308,7 +318,7 @@ window.SF = window.SF || {};
     const rows = [[
       'foto', 'gps_lat_drone', 'gps_lon_drone', 'gps_altitude_m', 'data_ora',
       'target_lat', 'target_lon', 'target_geo_note',
-      'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h', 'confidenza_%', 'copertura_area_%',
+      'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h', 'confidenza_%', 'copertura_area_%', 'avviso_forma',
     ]];
     results.forEach((r) => {
       (r.detections || []).forEach((d) => {
@@ -319,6 +329,7 @@ window.SF = window.SF || {};
           hasTargetGeo ? d.target_lat : '', hasTargetGeo ? d.target_lon : '',
           hasTargetGeo ? (d.geo_warning || '') : (d.geo_note || ''),
           d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3], d.confidence, d.fill_ratio,
+          d.geom_warning || '',
         ]);
       });
     });
