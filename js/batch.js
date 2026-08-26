@@ -1,8 +1,9 @@
 /**
  * Modulo 3 - Elaborazione Batch: applica il profilo colore calibrato a un lotto di
  * foto di missione usando un pool di Web Worker (uno per core) con OpenCV.js.
- * Nessuna impostazione avanzata esposta: valori di default già ottimizzati
- * (porta 1:1 di modules/image_processing.py:ProcessingConfig).
+ * Il filtro geometrico (sezione 5) è un'impostazione avanzata, collassata di default: i valori
+ * di default sono già ragionevoli per la maggior parte dei casi (porta 1:1 di
+ * modules/image_processing.py:ProcessingConfig, poi affinata nei punti 2/6/7 della roadmap).
  */
 window.SF = window.SF || {};
 
@@ -10,6 +11,38 @@ window.SF = window.SF || {};
   'use strict';
 
   const IMAGE_EXT_RE = /\.(jpe?g|png|tiff?|bmp)$/i;
+
+  // ------------------------------------------------------------- riconoscimento camera da EXIF
+  // Tolleranza sulla lunghezza focale reale (mm) nel confronto con la tabella DRONES: assorbe gli
+  // arrotondamenti tipici della rappresentazione RATIONAL dell'EXIF (es. 12.29 vs 12.3) senza
+  // però confondere camere realmente diverse. Non è "quanto siamo permissivi nello scegliere" —
+  // è il margine di errore di misura, quindi resta piccolo.
+  const FOCAL_MATCH_TOLERANCE_MM = 0.15;
+
+  /**
+   * Trova le voci DRONES il cui fingerprint (dimensioni immagine + lunghezza focale reale) è
+   * compatibile con quello letto dall'EXIF di una foto — MAI il tag Model, che i droni DJI non
+   * scrivono in modo distinguibile tra le diverse camere dello stesso corpo drone (es.
+   * grandangolare vs tele hanno lo stesso "Model" ma sensori/focali diversi).
+   *
+   * Ritorna un array: 0 elementi = nessun drone compatibile, 1 = riconoscimento univoco, 2+ =
+   * fingerprint ambiguo (es. due generazioni con la stessa ottica, caso reale per M3E/M4E
+   * grandangolare — differiscono di soli 0.01mm di focale nella tabella). Il chiamante decide se e
+   * come mostrare l'esito: qui non si sceglie mai "il primo" tra più candidati, per non rischiare
+   * una camera sbagliata in modo silenzioso — un GSD errato altererebbe il filtro geometrico per
+   * area (sezione 5).
+   */
+  function findExifFingerprintMatches(exifImageWidth, exifImageHeight, focalLengthMm, drones) {
+    if (!(exifImageWidth > 0) || !(exifImageHeight > 0) || !(focalLengthMm > 0)) return [];
+    return drones.filter((d) => {
+      if (!(d.image_width_px > 0) || !(d.image_height_px > 0) || !(d.focal_length_mm > 0)) return false; // es. 'custom'
+      const dimsMatch =
+        (d.image_width_px === exifImageWidth && d.image_height_px === exifImageHeight) ||
+        (d.image_width_px === exifImageHeight && d.image_height_px === exifImageWidth); // foto verticale (ruotata)
+      if (!dimsMatch) return false;
+      return Math.abs(d.focal_length_mm - focalLengthMm) <= FOCAL_MATCH_TOLERANCE_MM;
+    });
+  }
   const DETECTION_MODE_LABELS = {
     hsv: '⚡ Standard (veloce)',
     lab: '🌤️ Robusto a ombre e controluce',
@@ -34,9 +67,14 @@ window.SF = window.SF || {};
     // Non influenzano il rilevamento colore in sé: se lasciati vuoti, il batch funziona comunque
     // com'era prima, semplicemente senza coordinate del singolo target (solo del centro foto).
     georef: {
-      droneId: null, // impostato al primo drone rilevante in buildOnce
+      droneId: null, // impostato al primo drone rilevante in buildOnce, o dal riconoscimento EXIF sotto
       custom: { sensor_width_mm: 6.3, focal_length_mm: 4.5 },
       fallbackAltitudeM: null,
+      // Esito dell'ultimo tentativo di riconoscimento automatico da EXIF (vedi detectCameraFromExif):
+      // null finché non è ancora stato tentato; poi {status: 'matched'|'ambiguous'|'unmatched'|'no-exif', ...}.
+      // SOLO informativo per l'utente (nota a schermo): la select del drone resta sempre visibile e
+      // modificabile, il riconoscimento automatico non nasconde né forza mai la scelta manuale.
+      exifDetection: null,
     },
     // Filtro geometrico sui blob rilevati (punto 2): scarta forme troppo allungate (aspect
     // ratio) e, quando il GSD è disponibile per la foto (sezione 3 sopra), aree reali implausibili
@@ -73,6 +111,7 @@ window.SF = window.SF || {};
       document.getElementById('batch-folder-input').addEventListener('change', (e) => {
         st.files = filterImages(e.target.files);
         renderSourceStatus();
+        detectCameraFromExif();
       });
     } else {
       body.innerHTML = `
@@ -83,6 +122,7 @@ window.SF = window.SF || {};
       document.getElementById('batch-upload-input').addEventListener('change', (e) => {
         st.files = filterImages(e.target.files);
         renderSourceStatus();
+        detectCameraFromExif();
       });
     }
     renderSourceStatus();
@@ -131,6 +171,65 @@ window.SF = window.SF || {};
       const v = parseFloat(e.target.value);
       st.georef.custom.focal_length_mm = Number.isFinite(v) ? v : 0;
     });
+  }
+
+  /** Nota sotto la select del drone: SEMPRE visibile dopo un tentativo di riconoscimento, qualunque
+   *  sia l'esito — la select stessa non cambia comportamento (resta modificabile in ogni caso). */
+  function renderGeorefDetectionNote() {
+    const out = document.getElementById('batch-georef-exif-note');
+    if (!out) return;
+    const d = st.georef.exifDetection;
+    if (!d) {
+      out.innerHTML = '';
+      return;
+    }
+    if (d.status === 'matched') {
+      out.innerHTML = `<div class="sf-success">📷 Camera rilevata automaticamente dall'EXIF della prima foto (${d.w}×${d.h}px, focale ${d.f}mm): <strong>${SF.escapeHtml(d.droneName)}</strong>. Selezionata qui sotto — cambiala se non è corretta.</div>`;
+    } else if (d.status === 'ambiguous') {
+      out.innerHTML = `<div class="sf-info">ℹ️ L'EXIF (${d.w}×${d.h}px, focale ${d.f}mm) è compatibile con più camere in elenco (stessa ottica) — non scelta automaticamente: seleziona quella giusta qui sotto.</div>`;
+    } else if (d.status === 'unmatched') {
+      out.innerHTML = `<div class="sf-info">ℹ️ Nessuna camera in elenco combacia con l'EXIF della prima foto (${d.w}×${d.h}px, focale ${d.f}mm) — seleziona quella giusta qui sotto.</div>`;
+    } else {
+      out.innerHTML = `<div class="sf-info">ℹ️ Le foto non hanno un EXIF con dimensioni/focale leggibili: seleziona la camera qui sotto.</div>`;
+    }
+  }
+
+  /**
+   * Tenta il riconoscimento automatico della camera leggendo l'EXIF delle prime foto del lotto
+   * appena selezionato (non tutte: costoso su centinaia di file, e la camera è la stessa per
+   * l'intera missione) — si ferma alla prima foto che ha dati EXIF di dimensioni/focale utilizzabili.
+   * Aggiorna st.georef.droneId SOLO in caso di riconoscimento univoco (vedi findExifFingerprintMatches):
+   * la select resta comunque sempre visibile e modificabile, il risultato è sempre spiegato a schermo
+   * tramite renderGeorefDetectionNote(), mai applicato in silenzio.
+   */
+  async function detectCameraFromExif() {
+    st.georef.exifDetection = null;
+    if (!st.files.length || typeof readExifGps !== 'function') {
+      renderGeorefDetectionNote();
+      return;
+    }
+    const droneFilter = typeof SF.isWideRgbColorCamera === 'function' ? SF.isWideRgbColorCamera : () => true;
+    const georefDrones = DRONES.filter(droneFilter);
+    const sampleSize = Math.min(st.files.length, 5);
+    for (let i = 0; i < sampleSize; i++) {
+      const exif = await readExifGps(st.files[i]);
+      if (exif.exif_image_width && exif.exif_image_height && exif.focal_length_mm) {
+        const matches = findExifFingerprintMatches(exif.exif_image_width, exif.exif_image_height, exif.focal_length_mm, georefDrones);
+        const info = { w: exif.exif_image_width, h: exif.exif_image_height, f: exif.focal_length_mm };
+        if (matches.length === 1) {
+          st.georef.droneId = matches[0].id;
+          st.georef.exifDetection = { status: 'matched', droneName: `${matches[0].drone} — ${matches[0].sensore}`, ...info };
+          const sel = document.getElementById('batch-drone-select');
+          if (sel) { sel.value = st.georef.droneId; renderGeorefCustomFields(); }
+        } else {
+          st.georef.exifDetection = { status: matches.length > 1 ? 'ambiguous' : 'unmatched', ...info };
+        }
+        renderGeorefDetectionNote();
+        return;
+      }
+    }
+    st.georef.exifDetection = { status: 'no-exif' };
+    renderGeorefDetectionNote();
   }
 
   function renderStartSection() {
@@ -409,18 +508,22 @@ window.SF = window.SF || {};
       <div id="batch-source-body"></div>
 
       <h2 class="sf-section">3. Camera e posizione GPS del target</h2>
-      <p class="sf-caption">SkyFind calcola la posizione GPS di ogni target rilevato (non solo del centro foto):
-        servono la camera in uso — come nel Mission Planner — e la quota di volo.</p>
+      <p class="sf-caption">La posizione GPS (e la quota) vengono lette <strong>automaticamente dai metadati EXIF
+        di ogni foto</strong>, nessuna azione richiesta qui sotto. Serve solo indicare la camera in uso — come nel
+        Mission Planner — per calcolare correttamente il GSD (metri per pixel) e quindi la posizione precisa del
+        target, non solo del centro foto: SkyFind prova a riconoscerla da sola dalle prime foto del lotto (dimensioni
+        immagine e focale nell'EXIF), ma la scelta resta sempre visibile e modificabile qui sotto.</p>
       <label class="sf-label">Drone e camera in uso</label>
       <select id="batch-drone-select">${droneOptions}</select>
+      <div id="batch-georef-exif-note" style="margin-top:0.5rem;"></div>
       <div id="batch-georef-custom" style="margin-top:0.7rem;"></div>
       <label class="sf-label" style="margin-top:0.9rem;">Quota di volo di riserva (AGL, metri) — opzionale</label>
       <input type="number" step="1" min="1" id="batch-fallback-altitude" placeholder="es. 40">
       <p class="sf-caption">Usata solo per le foto <em>senza</em> quota relativa nei metadati DJI
         (<code>drone-dji:RelativeAltitude</code>, presente sulla stragrande maggioranza delle foto DJI): se il dato
-        c'è nella foto, ha sempre la precedenza su questo valore. Se lasci vuoto e manca anche nella foto, per
-        quelle foto i target vengono comunque rilevati ma senza una loro posizione GPS specifica (resta solo la
-        posizione del drone al momento dello scatto, come prima).</p>
+        c'è nella foto, ha sempre la precedenza su questo valore (anche questo letto automaticamente dall'EXIF). Se
+        lasci vuoto e manca anche nella foto, per quelle foto i target vengono comunque rilevati ma senza una loro
+        posizione GPS specifica (resta solo la posizione del drone al momento dello scatto, come prima).</p>
 
       <h2 class="sf-section">4. Modalità di rilevamento</h2>
       <div class="sf-grid-2">
@@ -440,36 +543,42 @@ window.SF = window.SF || {};
       </div>
 
       <h2 class="sf-section">5. Filtro geometrico sui blob rilevati</h2>
-      <p class="sf-caption">Un target SAR è spesso parzialmente coperto (vegetazione, ombre, altri ostacoli):
-        un pezzo di indumento a malapena visibile può risultare piccolo o di forma insolita pur essendo un
-        rilevamento vero. Per questo le soglie qui sotto <strong>non scartano</strong> i casi dubbi: li tengono
+      <p class="sf-caption">Impostazione avanzata, opzionale: i valori di default sotto sono già ragionevoli per la
+        maggior parte delle missioni. Un target SAR è spesso parzialmente coperto (vegetazione, ombre, altri
+        ostacoli): un pezzo di indumento a malapena visibile può risultare piccolo o di forma insolita pur essendo
+        un rilevamento vero. Per questo le soglie qui sotto <strong>non scartano</strong> i casi dubbi: li tengono
         nei risultati con un avviso "da verificare". Viene scartato in automatico solo ciò che è quasi
         certamente non un target — un'area reale oltre il massimo (terreno/tetto/vegetazione estesa) o una
         forma estremamente allungata, ben oltre queste soglie (tipicamente un artefatto lineare, non un
         frammento di indumento).</p>
-      <div class="sf-grid-2">
-        <div>
-          <label class="sf-label">Area minima (m²) — solo segnalazione</label>
-          <input type="number" step="0.01" min="0" id="batch-min-area-m2" value="${st.geomFilter.minAreaM2}" placeholder="es. 0.05">
-        </div>
-        <div>
-          <label class="sf-label">Area massima (m²) — scarta</label>
-          <input type="number" step="0.1" min="0" id="batch-max-area-m2" value="${st.geomFilter.maxAreaM2}" placeholder="es. 8">
-        </div>
-      </div>
-      <label class="sf-label" style="margin-top:0.9rem;">Aspect ratio massimo (lato lungo / lato corto) — oltre segnala, oltre 2,5× scarta</label>
-      <input type="number" step="0.5" min="1" id="batch-max-aspect-ratio" value="${st.geomFilter.maxAspectRatio}" placeholder="es. 6">
-      <p class="sf-caption">I campi sull'area richiedono camera e quota configurate in sezione 3: se mancano,
-        per quella foto viene valutato solo l'aspect ratio (non richiede il GSD). Lascia vuoto un campo per
-        disattivare solo quel controllo.</p>
+      <details id="batch-geomfilter-advanced">
+        <summary style="cursor:pointer; color:var(--muted);">⚙️ Impostazioni avanzate: soglie del filtro geometrico</summary>
+        <div style="padding: 0.8rem 0 0.2rem;">
+          <div class="sf-grid-2">
+            <div>
+              <label class="sf-label">Area minima (m²) — solo segnalazione</label>
+              <input type="number" step="0.01" min="0" id="batch-min-area-m2" value="${st.geomFilter.minAreaM2}" placeholder="es. 0.05">
+            </div>
+            <div>
+              <label class="sf-label">Area massima (m²) — scarta</label>
+              <input type="number" step="0.1" min="0" id="batch-max-area-m2" value="${st.geomFilter.maxAreaM2}" placeholder="es. 8">
+            </div>
+          </div>
+          <label class="sf-label" style="margin-top:0.9rem;">Aspect ratio massimo (lato lungo / lato corto) — oltre segnala, oltre 2,5× scarta</label>
+          <input type="number" step="0.5" min="1" id="batch-max-aspect-ratio" value="${st.geomFilter.maxAspectRatio}" placeholder="es. 6">
+          <p class="sf-caption">I campi sull'area richiedono camera e quota configurate in sezione 3: se mancano,
+            per quella foto viene valutato solo l'aspect ratio (non richiede il GSD). Lascia vuoto un campo per
+            disattivare solo quel controllo.</p>
 
-      <label class="sf-label" style="margin-top:0.9rem;">Distanza massima per unire rilevamenti vicini (px, foto originale)</label>
-      <input type="number" step="5" min="0" id="batch-merge-gap-px" value="${st.geomFilter.mergeGapPx}" placeholder="es. 30">
-      <p class="sf-caption">Un target parzialmente coperto (ramo, ombra, altro ostacolo) può spezzare la maschera
-        colore in più pezzi ravvicinati sulla stessa foto: entro questa distanza vengono uniti in un unico
-        rilevamento (un solo ritaglio/cerchio nel Report), invece di comparire come rilevamenti separati.
-        Un valore troppo alto rischia di unire due target realmente distinti ma vicini tra loro — 0 o vuoto
-        disattiva l'unione (comportamento precedente, un rilevamento per ogni pezzo).</p>
+          <label class="sf-label" style="margin-top:0.9rem;">Distanza massima per unire rilevamenti vicini (px, foto originale)</label>
+          <input type="number" step="5" min="0" id="batch-merge-gap-px" value="${st.geomFilter.mergeGapPx}" placeholder="es. 30">
+          <p class="sf-caption">Un target parzialmente coperto (ramo, ombra, altro ostacolo) può spezzare la maschera
+            colore in più pezzi ravvicinati sulla stessa foto: entro questa distanza vengono uniti in un unico
+            rilevamento (un solo ritaglio/cerchio nel Report), invece di comparire come rilevamenti separati.
+            Un valore troppo alto rischia di unire due target realmente distinti ma vicini tra loro — 0 o vuoto
+            disattiva l'unione (comportamento precedente, un rilevamento per ogni pezzo).</p>
+        </div>
+      </details>
 
       <h2 class="sf-section">6. Avvia elaborazione</h2>
       <div id="batch-start-section"></div>

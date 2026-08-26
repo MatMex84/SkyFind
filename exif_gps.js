@@ -208,11 +208,22 @@ function normalizeHeadingDeg(deg) {
  *     proiezione raggio-terreno in geo_utils.js per calcolare correttamente
  *     la posizione anche su scatti obliqui (non solo nadir puro), e per
  *     segnalare in Report quando l'obliquità rende la stima meno certa.
+ *
+ * In PIÙ, campi EXIF standard (non DJI) usati in Elaborazione Batch per riconoscere
+ * automaticamente la camera in uso (vedi matchDroneFromExifFingerprint in js/batch.js), SENZA
+ * fare affidamento sul tag Model (che l'EXIF DJI non riporta in modo distinguibile tra le diverse
+ * camere di uno stesso drone, es. grandangolare vs tele): dimensioni immagine reali e lunghezza
+ * focale reale (non equivalente 35mm) sono invece dati oggettivi della foto stessa, confrontabili
+ * con la tabella DRONES:
+ *   - exif_image_width / exif_image_height: da ExifImageWidth (0xA002) / ExifImageHeight (0xA003).
+ *   - focal_length_mm: da FocalLength (0x920A), lunghezza focale REALE in mm (non l'equivalente
+ *     35mm, tag diverso 0xA405, qui non usato).
  */
 async function readExifGps(file) {
   const result = {
     gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
     rel_altitude_m: null, heading_deg: null, heading_source: null, gimbal_pitch_deg: null,
+    exif_image_width: null, exif_image_height: null, focal_length_mm: null,
   };
   try {
     const headSlice = file.slice(0, Math.min(EXIF_READ_BYTES, file.size));
@@ -236,6 +247,10 @@ async function readExifGps(file) {
           if (typeof exifIfd[0x9003] === 'string') {
             result.datetime_original = exifIfd[0x9003];
           }
+          // Dimensioni immagine reali e focale reale: fingerprint della camera (vedi commento sopra).
+          if (typeof exifIfd[0xa002] === 'number') result.exif_image_width = exifIfd[0xa002];
+          if (typeof exifIfd[0xa003] === 'number') result.exif_image_height = exifIfd[0xa003];
+          if (typeof exifIfd[0x920a] === 'number') result.focal_length_mm = exifIfd[0x920a];
         }
 
         // GPS vive nella GPS SubIFD (tag 0x8825 in IFD0 punta lì)

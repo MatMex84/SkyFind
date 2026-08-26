@@ -29,6 +29,15 @@ const AUTO_TOLERANCE_LAB = [20, 20, 20]; // (L, a, b)
 const ADAPTIVE_K = 2.2;
 const TOLERANCE_CEIL_MULT = 2.2;
 
+// Modalità Palette: un solo colore esatto scelto dall'utente (nessuna foto reale), quindi la
+// deviazione osservata tra campioni è SEMPRE zero e la formula adattiva sopra collasserebbe sempre
+// al pavimento AUTO_TOLERANCE_LAB/HSV — la tolleranza più stretta possibile, anche più stretta di
+// un singolo punto scelto col contagocce su una foto vera (che almeno un minimo di rumore/JPEG ce
+// l'ha). Un colore "da catalogo" non cattura però la variazione reale di un target sul campo (luce,
+// ombra, sporco, usura del tessuto): per questo qui si assume direttamente il tetto massimo
+// (TOLERANCE_CEIL_MULT) invece di quello osservato — la stessa tolleranza che un campione fotografico
+// otterrebbe nel caso di massima variazione consentita, non un valore nuovo o più permissivo di quello.
+
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -117,8 +126,12 @@ function applyGrayWorldGains(data, nPixels, gains, channelsPerPixel) {
  * singola (tolleranza = valore fisso di base). Con piu' sample, la media e'
  * calcolata su tutti i pixel insieme e la tolleranza si allarga in base alla
  * deviazione standard osservata tra i campioni, entro i limiti sopra.
+ *
+ * `opts.widen` (usato dalla modalità Palette): salta il calcolo dalla deviazione osservata — che
+ * con un colore esatto è sempre zero — e usa direttamente il tetto massimo di tolleranza. Nessun
+ * effetto sulla modalità contagocce su foto (widen assente/false): comportamento invariato.
  */
-function computeProfileFromSamples(cv, samples) {
+function computeProfileFromSamples(cv, samples, opts) {
   let totalPixels = 0;
   samples.forEach((s) => { totalPixels += s.width * s.height; });
   const combined = new Uint8ClampedArray(totalPixels * 4);
@@ -150,8 +163,13 @@ function computeProfileFromSamples(cv, samples) {
   rgba.delete(); rgb.delete(); hsv.delete(); lab.delete();
   hsvMean.delete(); hsvStd.delete(); labMean.delete(); labStd.delete();
 
-  const toleranceHsv = AUTO_TOLERANCE_HSV.map((base, i) => clamp(ADAPTIVE_K * stdHsv[i], base, base * TOLERANCE_CEIL_MULT));
-  const toleranceLab = AUTO_TOLERANCE_LAB.map((base, i) => clamp(ADAPTIVE_K * stdLab[i], base, base * TOLERANCE_CEIL_MULT));
+  const widen = !!(opts && opts.widen);
+  const toleranceHsv = AUTO_TOLERANCE_HSV.map((base, i) =>
+    widen ? base * TOLERANCE_CEIL_MULT : clamp(ADAPTIVE_K * stdHsv[i], base, base * TOLERANCE_CEIL_MULT)
+  );
+  const toleranceLab = AUTO_TOLERANCE_LAB.map((base, i) =>
+    widen ? base * TOLERANCE_CEIL_MULT : clamp(ADAPTIVE_K * stdLab[i], base, base * TOLERANCE_CEIL_MULT)
+  );
 
   return {
     mean_hsv: meanHsv,

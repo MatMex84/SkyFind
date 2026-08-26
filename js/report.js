@@ -162,9 +162,13 @@ window.SF = window.SF || {};
     if (modal) modal.classList.remove('open');
   }
 
+  /** Avanza/arretra di una foto SENZA tornare in ciclo dall'inizio/fine (comportamento richiesto
+   *  esplicitamente: a fine elenco ci si ferma sull'ultima foto, non si riparte dalla prima). */
   function browseStep(delta) {
     if (!browseItems.length) return;
-    st.browseIdx = (st.browseIdx + delta + browseItems.length) % browseItems.length;
+    const next = st.browseIdx + delta;
+    if (next < 0 || next >= browseItems.length) return;
+    st.browseIdx = next;
     renderBrowseFrame();
   }
 
@@ -174,6 +178,9 @@ window.SF = window.SF || {};
     const frame = document.getElementById('sf-browse-frame');
     frame.innerHTML = '';
     document.getElementById('sf-browse-counter').textContent = `Foto ${st.browseIdx + 1} di ${browseItems.length}`;
+    // Frecce disabilitate a fine/inizio elenco: segnale visivo che qui ci si ferma, non si ricomincia.
+    document.getElementById('sf-browse-prev').disabled = st.browseIdx <= 0;
+    document.getElementById('sf-browse-next').disabled = st.browseIdx >= browseItems.length - 1;
 
     const bestConf = item.dets.length ? Math.max(...item.dets.map((d) => d.confidence)) : 0;
     const gpsTxt =
@@ -751,19 +758,22 @@ window.SF = window.SF || {};
         esplicitamente nelle impostazioni avanzate.</p>
       <div id="report-metrics"></div>
 
+      <div id="report-confidence-controls" style="margin: 0.8rem 0;">
+        <label class="sf-label">Punteggio minimo da mostrare a schermo (%)</label>
+        <input type="range" id="report-confidence-slider" min="0" max="100" step="1" value="${st.minConfidence}">
+        <p class="sf-caption" id="report-confidence-value">${st.minConfidence}%</p>
+        <p class="sf-caption">Restringe solo la lista mostrata qui sotto (schede, Sfoglia, lightbox) per concentrarti
+          sui rilevamenti più probabili durante la revisione — riportalo a 0 in qualsiasi momento per rivedere tutto.
+          <strong>Non cancella nulla</strong>: i rilevamenti sotto soglia restano nei dati e, per default, restano
+          anche nell'export sotto.</p>
+      </div>
+
       <details id="report-advanced-settings" style="margin: 0.8rem 0;">
-        <summary style="cursor:pointer; color:var(--muted);">⚙️ Impostazioni avanzate: filtro per punteggio</summary>
+        <summary style="cursor:pointer; color:var(--muted);">⚙️ Impostazioni avanzate</summary>
         <div style="padding: 0.8rem 0 0.2rem;">
-          <label class="sf-label">Punteggio minimo da mostrare a schermo (%)</label>
-          <input type="range" id="report-confidence-slider" min="0" max="100" step="1" value="${st.minConfidence}">
-          <p class="sf-caption" id="report-confidence-value">${st.minConfidence}%</p>
-          <p class="sf-caption">Restringe solo la lista mostrata qui sotto (schede, Sfoglia, lightbox) per concentrarti
-            sui rilevamenti più probabili durante la revisione — riportalo a 0 in qualsiasi momento per rivedere tutto.
-            <strong>Non cancella nulla</strong>: i rilevamenti sotto soglia restano nei dati e, per default, restano
-            anche nell'export sotto.</p>
           <label class="sf-caption" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
             <input type="checkbox" id="report-filter-exports-checkbox" ${st.filterExports ? 'checked' : ''}>
-            Applica questa soglia anche all'export CSV/HTML (esclude i rilevamenti sotto soglia dal file scaricato)
+            Applica la soglia punteggio anche all'export CSV/HTML (esclude i rilevamenti sotto soglia dal file scaricato)
           </label>
           <p class="sf-caption" style="color:var(--accent-warm, #e0a030);">⚠️ Attiva questa casella solo se vuoi
             consapevolmente escludere dei rilevamenti dal report finale (es. per condividere solo i più probabili):

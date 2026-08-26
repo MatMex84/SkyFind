@@ -317,7 +317,9 @@ window.SF = window.SF || {};
     const samples = activeSamples();
     if (!samples.length) return;
     const cv = await SF.loadCv();
-    st.currentProfile = computeProfileFromSamples(cv, samples);
+    // Palette: nessuna foto reale da cui osservare variazione -> tolleranza allargata al tetto
+    // massimo invece di collassare al pavimento più stretto (vedi commento in color_calib.js).
+    st.currentProfile = computeProfileFromSamples(cv, samples, { widen: st.mode === 'palette' });
     st.currentProfile.name = st.profileName;
     st.currentProfile.sample_source = st.sampleSource;
     renderProfilePreview();

@@ -1,4 +1,10 @@
 :root {
+  /* Tema scuro fisso (nessun toggle chiaro/scuro nell'app): dice al browser di disegnare i controlli
+     nativi (menu a tendina, scrollbar, ecc.) con la sua chrome scura invece del bianco/grigio di
+     default del sistema operativo — altrimenti il popup delle <option> di una <select> resta chiaro
+     anche se lo <select> stesso è stilizzato scuro (background/color su <option> da soli non bastano
+     su tutti i motori di rendering). */
+  color-scheme: dark;
   --bg: #0e1117;
   --panel: #161b22;
   --panel-soft: rgba(255,255,255,0.03);
@@ -118,6 +124,11 @@ input[type="text"], input[type="number"], select {
   background: var(--panel-soft); border: 1px solid var(--border); color: var(--text);
   border-radius: 8px; padding: 0.5rem 0.6rem; font-size: 0.92rem; width: 100%;
 }
+/* Le righe del popup di una <select> (drone, profilo colore, ecc.) sono controlli nativi del
+   browser: color-scheme:dark sopra fa buona parte del lavoro, background/color qui sotto
+   allineano il colore esatto del popup a quello del resto dell'app invece di un grigio scuro
+   generico scelto dal browser. */
+select option { background: var(--panel); color: var(--text); }
 input[type="range"] { width: 100%; }
 
 .sf-radio-row { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: 0.4rem 0 1rem; }
