@@ -8,7 +8,7 @@ window.SF = window.SF || {};
 (function () {
   'use strict';
 
-  const st = { built: false, minConfidence: 0, cropUrls: new Map(), browseIdx: 0 };
+  const st = { built: false, minConfidence: 0, cropUrls: new Map(), browseIdx: 0, viewMode: 'photo', dedupRadiusM: 7 };
   const fileUrlCache = new WeakMap();
   let browseItems = []; // [{result, dets, file}], costruito all'apertura della modalita' Sfoglia
 
@@ -27,6 +27,60 @@ window.SF = window.SF || {};
 
   function mapsLink(lat, lon) {
     return `https://www.google.com/maps?q=${lat.toFixed(6)},${lon.toFixed(6)}`;
+  }
+
+  // ------------------------------------------------------------- deduplica cross-foto (punto 3)
+  /**
+   * Raccoglie tutte le detection sopra soglia confidenza, divise tra quelle con posizione GPS del
+   * target calcolabile (punto 1, deduplicabili per prossimità) e quelle senza (nessuna camera/quota
+   * configurata, o EXIF assente): queste ultime non spariscono, restano visibili separatamente
+   * perché la deduplica per posizione non può includerle.
+   */
+  function gatherGeoreferencedItems(minConfidence) {
+    const results = SF.state.batchResults || [];
+    const withGeo = [], withoutGeo = [];
+    results.forEach((r) => {
+      (r.detections || []).forEach((d) => {
+        if (d.confidence < minConfidence) return;
+        const item = { det: d, result: r };
+        if (d.target_lat !== null && d.target_lat !== undefined) withGeo.push(item);
+        else withoutGeo.push(item);
+      });
+    });
+    return { withGeo, withoutGeo };
+  }
+
+  /**
+   * Raggruppa le detection georiferite che ricadono entro `thresholdM` metri l'una dall'altra: lo
+   * stesso target visto in scatti diversi con overlap frontale/laterale diventa un cluster unico
+   * invece di righe duplicate nel Report. Algoritmo greedy voluto semplice (niente DBSCAN o
+   * dipendenze esterne): si processa in ordine di confidenza decrescente, ogni detection entra nel
+   * cluster più vicino il cui centroide è entro soglia (il centroide si ricalcola come media a ogni
+   * aggiunta), altrimenti apre un cluster nuovo. A scala di missione SAR (decine di target al più)
+   * è sufficiente e resta facile da verificare/spiegare.
+   *
+   * Limite noto: essendo greedy e basato sul centroide corrente (non su ogni coppia di punti), in
+   * casi limite (tanti target ravvicinati in fila, a distanza vicina alla soglia) può unire o
+   * separare diversamente da un clustering esaustivo — accettabile per l'uso previsto.
+   */
+  function clusterDetectionsByGps(items, thresholdM) {
+    const clusters = [];
+    const sorted = items.slice().sort((a, b) => b.det.confidence - a.det.confidence);
+    for (const item of sorted) {
+      let best = null, bestDist = Infinity;
+      for (const cl of clusters) {
+        const d = distanceMetersApprox(item.det.target_lat, item.det.target_lon, cl.lat, cl.lon);
+        if (d <= thresholdM && d < bestDist) { best = cl; bestDist = d; }
+      }
+      if (best) {
+        best.items.push(item);
+        best.lat = best.items.reduce((s, it) => s + it.det.target_lat, 0) / best.items.length;
+        best.lon = best.items.reduce((s, it) => s + it.det.target_lon, 0) / best.items.length;
+      } else {
+        clusters.push({ lat: item.det.target_lat, lon: item.det.target_lon, items: [item] });
+      }
+    }
+    return clusters;
   }
 
   function drawCircles(canvas, img, dets, selectedIdx) {
@@ -314,6 +368,77 @@ window.SF = window.SF || {};
       ${body}</body></html>`;
   }
 
+  // ------------------------------------------------------------- export "Target unici" (punto 3)
+  function buildHtmlReportByTarget(clusters, withoutGeo, profileName, minConfidence) {
+    const cards = clusters
+      .map((cl, i) => {
+        const items = cl.items.slice().sort((a, b) => b.det.confidence - a.det.confidence);
+        const photoNames = [...new Set(items.map((it) => it.result.name))];
+        const detCards = items
+          .map((it) => {
+            const d = it.det;
+            const b64 = arrayBufferToBase64(d.crop_jpeg);
+            const shapeWarningHtml = d.geom_warning ? `<div>🔍 ${SF.escapeHtml(d.geom_warning)}</div>` : '';
+            return `<div class="det-card"><img src="data:image/jpeg;base64,${b64}" alt="target rilevato" />
+              <div class="det-meta"><div><strong>Foto:</strong> ${SF.escapeHtml(it.result.name)}</div>
+              <div><strong>Confidenza:</strong> ${SF.formatNum(d.confidence)}%</div>${shapeWarningHtml}</div></div>`;
+          })
+          .join('');
+        return `<section class="photo-card"><h3>🎯 Target ${i + 1}</h3>
+          <div class="photo-meta"><span>📍 <a href="${mapsLink(cl.lat, cl.lon)}" target="_blank" rel="noopener">${cl.lat.toFixed(6)}, ${cl.lon.toFixed(6)}</a> (centroide)</span>
+          <span>${items.length} rilevamento/i in ${photoNames.length} foto: ${photoNames.map((n) => SF.escapeHtml(n)).join(', ')}</span></div>
+          <div class="det-grid">${detCards}</div></section>`;
+      })
+      .join('');
+
+    const withoutGeoHtml = withoutGeo.length
+      ? `<p>${withoutGeo.length} rilevamento/i sopra soglia senza posizione GPS del target (non deduplicabile/i per
+         prossimità): ${withoutGeo.map((it) => SF.escapeHtml(it.result.name)).join(', ')}.</p>`
+      : '';
+
+    const css = `
+      body { font-family: system-ui, sans-serif; margin: 2rem; background:#0e1117; color:#e6e6e6; }
+      h1 { margin-bottom: 0.2rem; }
+      .summary { color:#9aa0a6; margin-bottom: 2rem; }
+      .photo-card { border:1px solid #333; border-radius:10px; padding:1rem; margin-bottom:1.5rem; background:#161b22; }
+      .photo-meta { display:flex; flex-wrap:wrap; gap:1.5rem; color:#9aa0a6; font-size:0.9rem; margin-bottom:0.8rem; }
+      .photo-meta a { color:#6ea8fe; }
+      .det-grid { display:flex; flex-wrap:wrap; gap:1rem; }
+      .det-card { width:220px; border:1px solid #333; border-radius:8px; overflow:hidden; background:#0e1117; }
+      .det-card img { width:100%; display:block; }
+      .det-meta { padding:0.5rem; font-size:0.85rem; }
+    `;
+    const body = cards || '<p>Nessun target georiferito sopra la soglia di confidenza scelta.</p>';
+    return `<!doctype html><html lang="it"><head><meta charset="utf-8" /><title>Report SkyFind — target unici</title><style>${css}</style></head>
+      <body><h1>🛰️ Report target unici — SkyFind</h1>
+      <div class="summary">Profilo colore: <strong>${SF.escapeHtml(profileName)}</strong> — ${clusters.length} target unici deduplicati per
+      prossimità GPS (soglia confidenza ≥ ${minConfidence.toFixed(0)}%).</div>
+      ${body}${withoutGeoHtml}</body></html>`;
+  }
+
+  function buildCsvReportByTarget(clusters, withoutGeo) {
+    const rows = [[
+      'target_id', 'target_lat', 'target_lon', 'n_rilevamenti', 'n_foto', 'foto',
+      'confidenza_max_%', 'confidenza_min_%', 'avvisi_forma',
+    ]];
+    clusters.forEach((cl, i) => {
+      const items = cl.items;
+      const photoNames = [...new Set(items.map((it) => it.result.name))];
+      const confs = items.map((it) => it.det.confidence);
+      const warnings = [...new Set(items.map((it) => it.det.geom_warning).filter(Boolean))];
+      rows.push([
+        i + 1, cl.lat, cl.lon, items.length, photoNames.length, photoNames.join('; '),
+        Math.max(...confs), Math.min(...confs), warnings.join('; '),
+      ]);
+    });
+    if (withoutGeo.length) {
+      rows.push([]);
+      rows.push(['# rilevamenti sopra soglia senza posizione GPS (non deduplicabili per prossimità):']);
+      withoutGeo.forEach((it) => rows.push(['', '', '', '', '', it.result.name, it.det.confidence, it.det.confidence, it.det.geom_warning || '']));
+    }
+    return rows.map((row) => row.map((v) => (v === null || v === undefined ? '' : csvEscape(String(v)))).join(',')).join('\r\n');
+  }
+
   function buildCsvReport(results, minConfidence) {
     const rows = [[
       'foto', 'gps_lat_drone', 'gps_lon_drone', 'gps_altitude_m', 'data_ora',
@@ -377,6 +502,20 @@ window.SF = window.SF || {};
         <span class="sf-caption" style="margin-left:0.6rem;">Vista a schermo intero, foto per foto, con frecce ← →.</span>
       </div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
+
+      <div class="sf-radio-row" id="report-view-radio">
+        <label><input type="radio" name="report-view" value="photo" ${st.viewMode === 'photo' ? 'checked' : ''}> 📷 Per foto</label>
+        <label><input type="radio" name="report-view" value="target" ${st.viewMode === 'target' ? 'checked' : ''}> 🎯 Target unici (deduplica GPS)</label>
+      </div>
+      <div id="report-dedup-controls" style="display:${st.viewMode === 'target' ? 'block' : 'none'}; margin: 0.6rem 0;">
+        <label class="sf-label">Raggio di deduplica (metri)</label>
+        <input type="number" id="report-dedup-radius" min="1" step="1" value="${st.dedupRadiusM}" style="max-width:120px;">
+        <p class="sf-caption">Rilevamenti georiferiti (punto 1) entro questa distanza l'uno dall'altro vengono considerati
+          lo stesso target e raggruppati in un'unica scheda, con riferimento a tutte le foto in cui compare — invece di
+          righe duplicate per ogni scatto in overlap. Richiede la posizione GPS del target (camera+quota in Elaborazione
+          Batch): i rilevamenti senza restano visibili a parte, non vengono scartati.</p>
+      </div>
+
       <div id="report-cards"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
       <h2 class="sf-section">Esporta report</h2>
@@ -384,6 +523,7 @@ window.SF = window.SF || {};
         <button class="sf-btn" id="report-export-html">⬇️ Scarica report HTML</button>
         <button class="sf-btn" id="report-export-csv">⬇️ Scarica CSV rilevamenti</button>
       </div>
+      <p class="sf-caption" id="report-export-note"></p>
     `;
 
     document.getElementById('report-confidence-slider').addEventListener('input', (e) => {
@@ -391,12 +531,36 @@ window.SF = window.SF || {};
       document.getElementById('report-confidence-value').textContent = st.minConfidence + '%';
       renderFiltered();
     });
+    container.querySelectorAll('input[name="report-view"]').forEach((r) => {
+      r.addEventListener('change', (e) => {
+        st.viewMode = e.target.value;
+        document.getElementById('report-dedup-controls').style.display = st.viewMode === 'target' ? 'block' : 'none';
+        renderFiltered();
+      });
+    });
+    document.getElementById('report-dedup-radius').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.dedupRadiusM = Number.isFinite(v) && v > 0 ? v : 7;
+      if (st.viewMode === 'target') renderFiltered();
+    });
     document.getElementById('report-export-html').addEventListener('click', () => {
-      const filtered = getFiltered();
-      downloadBlob(buildHtmlReport(filtered, profileName, st.minConfidence), 'skyfind_report.html', 'text/html');
+      if (st.viewMode === 'target') {
+        const { withGeo, withoutGeo } = gatherGeoreferencedItems(st.minConfidence);
+        const clusters = clusterDetectionsByGps(withGeo, st.dedupRadiusM);
+        downloadBlob(buildHtmlReportByTarget(clusters, withoutGeo, profileName, st.minConfidence), 'skyfind_report_target.html', 'text/html');
+      } else {
+        const filtered = getFiltered();
+        downloadBlob(buildHtmlReport(filtered, profileName, st.minConfidence), 'skyfind_report.html', 'text/html');
+      }
     });
     document.getElementById('report-export-csv').addEventListener('click', () => {
-      downloadBlob(buildCsvReport(results, st.minConfidence), 'skyfind_detections.csv', 'text/csv');
+      if (st.viewMode === 'target') {
+        const { withGeo, withoutGeo } = gatherGeoreferencedItems(st.minConfidence);
+        const clusters = clusterDetectionsByGps(withGeo, st.dedupRadiusM);
+        downloadBlob(buildCsvReportByTarget(clusters, withoutGeo), 'skyfind_target_unici.csv', 'text/csv');
+      } else {
+        downloadBlob(buildCsvReport(results, st.minConfidence), 'skyfind_detections.csv', 'text/csv');
+      }
     });
     document.getElementById('report-browse-btn').addEventListener('click', () => openBrowse(0));
 
@@ -412,6 +576,18 @@ window.SF = window.SF || {};
   }
 
   function renderFiltered() {
+    const note = document.getElementById('report-export-note');
+    if (note) {
+      note.textContent =
+        st.viewMode === 'target'
+          ? "Export in modalità 'Target unici': un CSV/HTML per target, con l'elenco delle foto in cui compare."
+          : '';
+    }
+    if (st.viewMode === 'target') renderTargetView();
+    else renderPhotoView();
+  }
+
+  function renderPhotoView() {
     const filtered = getFiltered();
     document.getElementById('report-metrics').innerHTML = `
       <div class="sf-grid-2">
@@ -429,6 +605,122 @@ window.SF = window.SF || {};
     filtered.forEach(([r, dets], i) => {
       cardsEl.appendChild(renderPhotoCard(r, files[r._idx], dets, i));
     });
+  }
+
+  // ------------------------------------------------------------- vista "Target unici" (punto 3)
+  /** Indice della foto (per _idx) nella lista filtrata corrente, per aprire la modalità Sfoglia
+   *  sulla foto giusta da una scheda target — -1 se quella foto non ha rilevamenti sopra soglia. */
+  function photoIndexInFiltered(resultIdx) {
+    return getFiltered().findIndex(([r]) => r._idx === resultIdx);
+  }
+
+  function buildClusterThumb(item) {
+    const d = item.det;
+    const thumb = document.createElement('div');
+    thumb.className = 'sf-thumb';
+    thumb.title = item.result.name;
+    const flagBadge = d.geom_warning ? `<div class="sf-thumb-flag" title="${SF.escapeHtml(d.geom_warning)}">🔍</div>` : '';
+    thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>${flagBadge}`;
+    thumb.addEventListener('click', () => openLightbox(d, item.result.name));
+    return thumb;
+  }
+
+  function renderClusterBody(card, cluster) {
+    const thumbsEl = card.querySelector('.sf-thumb-strip');
+    if (thumbsEl.dataset.rendered) return;
+    thumbsEl.dataset.rendered = '1';
+    cluster.items
+      .slice()
+      .sort((a, b) => b.det.confidence - a.det.confidence)
+      .forEach((item) => thumbsEl.appendChild(buildClusterThumb(item)));
+
+    const photosEl = card.querySelector('.sf-cluster-photos');
+    const seen = new Set();
+    cluster.items.forEach((item) => {
+      if (seen.has(item.result._idx)) return;
+      seen.add(item.result._idx);
+      const btn = document.createElement('button');
+      btn.className = 'sf-link-btn';
+      btn.style.cssText = 'background:none; border:none; font:inherit; padding:0; margin-right:0.6rem;';
+      btn.textContent = item.result.name;
+      btn.title = 'Apri in modalità Sfoglia';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = photoIndexInFiltered(item.result._idx);
+        if (idx >= 0) openBrowse(idx);
+      });
+      photosEl.appendChild(btn);
+    });
+  }
+
+  function renderClusterCard(cluster, clusterIdx) {
+    const card = document.createElement('div');
+    card.className = 'sf-photo-card';
+    const items = cluster.items;
+    const confs = items.map((it) => it.det.confidence);
+    const maxConf = Math.max(...confs), minConf = Math.min(...confs);
+    const confRange = items.length > 1 ? `${SF.formatNum(minConf)}–${SF.formatNum(maxConf)}%` : `${SF.formatNum(maxConf)}%`;
+    const nPhotos = new Set(items.map((it) => it.result._idx)).size;
+
+    card.innerHTML = `
+      <div class="sf-photo-card-head">
+        <div>
+          <div class="sf-photo-card-title">🎯 Target ${clusterIdx + 1} — ${items.length} rilevamento/i in ${nPhotos} foto</div>
+          <div class="sf-photo-card-meta">
+            <span>📍 <a href="${mapsLink(cluster.lat, cluster.lon)}" target="_blank" rel="noopener">${cluster.lat.toFixed(6)}, ${cluster.lon.toFixed(6)}</a> (centroide)</span>
+            <span>Confidenza: ${confRange}</span>
+          </div>
+        </div>
+        <span class="sf-photo-card-chevron">▶</span>
+      </div>
+      <div class="sf-photo-card-body">
+        <div class="sf-thumb-strip"></div>
+        <p class="sf-caption" style="margin-top:0.6rem;">Foto in cui compare (clic per aprire in Sfoglia): <span class="sf-cluster-photos"></span></p>
+      </div>
+    `;
+    card.querySelector('.sf-photo-card-head').addEventListener('click', () => {
+      const wasOpen = card.classList.contains('open');
+      card.classList.toggle('open');
+      if (!wasOpen) renderClusterBody(card, cluster);
+    });
+    return card;
+  }
+
+  function renderTargetView() {
+    const { withGeo, withoutGeo } = gatherGeoreferencedItems(st.minConfidence);
+    const clusters = clusterDetectionsByGps(withGeo, st.dedupRadiusM);
+    clusters.sort((a, b) => Math.max(...b.items.map((it) => it.det.confidence)) - Math.max(...a.items.map((it) => it.det.confidence)));
+
+    document.getElementById('report-metrics').innerHTML = `
+      <div class="sf-grid-2">
+        <div class="sf-metric"><div class="sf-metric-label">Target unici (georiferiti)</div><div class="sf-metric-value">${clusters.length}</div></div>
+        <div class="sf-metric"><div class="sf-metric-label">Rilevamenti senza posizione GPS</div><div class="sf-metric-value">${withoutGeo.length}</div></div>
+      </div>
+    `;
+
+    const cardsEl = document.getElementById('report-cards');
+    cardsEl.innerHTML = '';
+    if (!clusters.length && !withoutGeo.length) {
+      cardsEl.innerHTML = '<div class="sf-warning">Nessun rilevamento sopra la soglia di confidenza scelta. Prova ad abbassare il cursore qui sopra.</div>';
+      return;
+    }
+    if (!clusters.length) {
+      cardsEl.innerHTML =
+        '<div class="sf-info">Nessuno dei rilevamenti sopra soglia ha una posizione GPS del target calcolabile: la ' +
+        'deduplica per prossimità richiede camera e quota configurate in Elaborazione Batch (punto 1). Vedi sotto per i ' +
+        'rilevamenti senza posizione, oppure passa alla vista "Per foto".</div>';
+    } else {
+      clusters.forEach((cl, i) => cardsEl.appendChild(renderClusterCard(cl, i)));
+    }
+    if (withoutGeo.length) {
+      const note = document.createElement('div');
+      note.className = 'sf-info';
+      note.style.marginTop = '1rem';
+      note.textContent =
+        `${withoutGeo.length} rilevamento/i sopra soglia senza posizione GPS del target: non deduplicabile/i per ` +
+        `prossimità (manca camera/quota o dati EXIF). Restano visibili nella vista "Per foto".`;
+      cardsEl.appendChild(note);
+    }
   }
 
   function setupLightbox() {
@@ -450,6 +742,10 @@ window.SF = window.SF || {};
       if (e.key === 'Escape') box.classList.remove('open');
     });
   }
+
+  // Esposta su SF (non solo uso interno) per essere testabile in isolamento, come le altre
+  // funzioni pure condivise in questo namespace (SF.escapeHtml, SF.formatNum, ecc.).
+  SF.clusterDetectionsByGps = clusterDetectionsByGps;
 
   SF.init_report = function () {
     setupLightbox();

@@ -184,3 +184,17 @@ function obliqueShotWarning(gimbalPitchDegOrNull) {
     `di yaw/pitch del drone pesa di più su scatti così obliqui — margine di errore verosimilmente maggiore del normale`
   );
 }
+
+/**
+ * Distanza approssimata in metri tra due punti lat/lon (usata per la deduplica cross-foto del
+ * punto 3: raggruppa le detection georiferite dello stesso target visto in scatti diversi con
+ * overlap). Stessa proiezione piana usata altrove in questo file (EARTH_METERS_PER_DEG_LAT, con
+ * cos(lat) per la longitudine) — coerente con pixelOffsetToLatLon() e adeguata alle distanze in
+ * gioco in una missione SAR (non per calcoli geodetici su aree estese).
+ */
+function distanceMetersApprox(lat1, lon1, lat2, lon2) {
+  const dLatM = (lat2 - lat1) * EARTH_METERS_PER_DEG_LAT;
+  const avgLatRad = ((lat1 + lat2) / 2) * Math.PI / 180;
+  const dLonM = (lon2 - lon1) * EARTH_METERS_PER_DEG_LAT * Math.cos(avgLatRad);
+  return Math.sqrt(dLatM * dLatM + dLonM * dLonM);
+}
