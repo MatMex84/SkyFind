@@ -42,7 +42,7 @@ window.SF = window.SF || {};
     // ratio) e, quando il GSD è disponibile per la foto (sezione 3 sopra), aree reali implausibili
     // per un indumento/persona vista dall'alto. Ogni soglia a null/vuoto disattiva quel singolo
     // controllo, non l'intero filtro — vedi passesGeometricFilter() in detect_worker.js.
-    geomFilter: { minAreaM2: 0.05, maxAreaM2: 8, maxAspectRatio: 6 },
+    geomFilter: { minAreaM2: 0.05, maxAreaM2: 8, maxAspectRatio: 6, mergeGapPx: 30 },
   };
 
   function filterImages(fileList) {
@@ -207,7 +207,7 @@ window.SF = window.SF || {};
                 name: files[gi].name, width: 0, height: 0,
                 gps_lat: null, gps_lon: null, gps_altitude: null, datetime_original: null,
                 detections: [], error: String(e.message || e),
-                geom_filter_rejected: null, geom_filter_flagged: null,
+                geom_filter_rejected: null, geom_filter_flagged: null, blobs_merged: null,
               };
               completedCount++;
             }
@@ -322,6 +322,9 @@ window.SF = window.SF || {};
       aspect_ratio: 'forma allungata',
       area_piccola: 'area piccola',
     };
+    // Blob vicini fusi in un unico rilevamento (mergeNearbyRects in detect_worker.js): puramente
+    // informativo, per trasparenza su quante volte è successo — nulla viene scartato qui.
+    const blobsMergedTotal = results.reduce((s, r) => s + (r.blobs_merged || 0), 0);
 
     document.getElementById('batch-progress-wrap').innerHTML = '';
     const out = document.getElementById('batch-results-section');
@@ -351,6 +354,13 @@ window.SF = window.SF || {};
           ? `<p class="sf-caption">🔍 <strong>${geomFlaggedTotal}</strong> rilevamenti segnalati per revisione, ma NON scartati
              (${Object.keys(geomFlagged).filter((k) => geomFlagged[k]).map((k) => `${geomFlagged[k]} ${GEOM_FLAG_LABELS_SUMMARY[k]}`).join(', ')}) —
              tipico di un target parzialmente coperto: controllali comunque nel Report.</p>`
+          : ''
+      }
+      ${
+        blobsMergedTotal
+          ? `<p class="sf-caption">🔗 <strong>${blobsMergedTotal}</strong> gruppo/i di blob vicini sulla stessa foto uniti in un unico
+             rilevamento (entro ${st.geomFilter.mergeGapPx}px, sezione 5) invece di comparire come rilevamenti separati —
+             tipico di un target la cui maschera colore si è spezzata in più pezzi ravvicinati.</p>`
           : ''
       }
       ${
@@ -453,6 +463,14 @@ window.SF = window.SF || {};
         per quella foto viene valutato solo l'aspect ratio (non richiede il GSD). Lascia vuoto un campo per
         disattivare solo quel controllo.</p>
 
+      <label class="sf-label" style="margin-top:0.9rem;">Distanza massima per unire rilevamenti vicini (px, foto originale)</label>
+      <input type="number" step="5" min="0" id="batch-merge-gap-px" value="${st.geomFilter.mergeGapPx}" placeholder="es. 30">
+      <p class="sf-caption">Un target parzialmente coperto (ramo, ombra, altro ostacolo) può spezzare la maschera
+        colore in più pezzi ravvicinati sulla stessa foto: entro questa distanza vengono uniti in un unico
+        rilevamento (un solo ritaglio/cerchio nel Report), invece di comparire come rilevamenti separati.
+        Un valore troppo alto rischia di unire due target realmente distinti ma vicini tra loro — 0 o vuoto
+        disattiva l'unione (comportamento precedente, un rilevamento per ogni pezzo).</p>
+
       <h2 class="sf-section">6. Avvia elaborazione</h2>
       <div id="batch-start-section"></div>
       <div id="batch-progress-wrap"></div>
@@ -480,6 +498,10 @@ window.SF = window.SF || {};
     document.getElementById('batch-max-area-m2').addEventListener('input', (e) => {
       const v = parseFloat(e.target.value);
       st.geomFilter.maxAreaM2 = Number.isFinite(v) && v > 0 ? v : null;
+    });
+    document.getElementById('batch-merge-gap-px').addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      st.geomFilter.mergeGapPx = Number.isFinite(v) && v > 0 ? v : 0;
     });
     document.getElementById('batch-max-aspect-ratio').addEventListener('input', (e) => {
       const v = parseFloat(e.target.value);

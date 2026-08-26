@@ -93,6 +93,60 @@ const GEOM_FLAG_LABELS = {
   area_piccola: 'area rilevata piccola: possibile rilevamento parziale (target parzialmente coperto) — verificare',
 };
 
+/**
+ * Distanza (in px, bordo a bordo) tra due bounding box: 0 se si toccano o si sovrappongono,
+ * altrimenti la distanza euclidea tra i bordi più vicini.
+ */
+function rectGapPx(a, b) {
+  const dx = Math.max(a.x - (b.x + b.width), b.x - (a.x + a.width), 0);
+  const dy = Math.max(a.y - (b.y + b.height), b.y - (a.y + a.height), 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** Bounding box che racchiude entrambi i rettangoli dati. */
+function unionRect(a, b) {
+  const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y);
+  const x1 = Math.max(a.x + a.width, b.x + b.width), y1 = Math.max(a.y + a.height, b.y + b.height);
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+
+/**
+ * Fonde in un unico blob i rilevamenti grezzi (contorni della maschera colore) la cui distanza
+ * bordo-a-bordo è entro `maxGapPx` — un target parzialmente coperto (ramo, ombra, altro ostacolo)
+ * spezza spesso la maschera in più pezzi vicini invece di restare un blob unico: senza questa
+ * fusione ogni pezzo diventerebbe un rilevamento a sé (stesso target contato più volte, con più
+ * cerchi/ritagli separati nel Report). Clustering "single-linkage" semplice (fondi la prima coppia
+ * più vicina della soglia, ripeti finché non ci sono più fusioni possibili): a scala di un singolo
+ * scatto (poche decine di blob al più) è più che sufficiente e resta facile da verificare.
+ *
+ * L'area del blob fuso è la SOMMA delle aree reali dei pezzi originali (non l'area del rettangolo
+ * unito, che includerebbe anche lo spazio vuoto tra i pezzi) — così il filtro geometrico sull'area
+ * massima (punto 2) continua a valutare l'area REALMENTE rilevata, non gonfiata dalla fusione.
+ *
+ * `maxGapPx` a 0 (o non numerico) disattiva la fusione: ogni blob resta un rilevamento separato,
+ * come prima dell'introduzione di questa funzione.
+ */
+function mergeNearbyRects(blobs, maxGapPx) {
+  if (!(maxGapPx > 0)) return blobs.slice();
+  let groups = blobs.map((b) => ({ area: b.area, rect: b.rect }));
+  let mergedAny = true;
+  while (mergedAny) {
+    mergedAny = false;
+    outer: for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        if (rectGapPx(groups[i].rect, groups[j].rect) <= maxGapPx) {
+          const merged = { area: groups[i].area + groups[j].area, rect: unionRect(groups[i].rect, groups[j].rect) };
+          groups = groups.filter((_, idx) => idx !== i && idx !== j);
+          groups.push(merged);
+          mergedAny = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return groups;
+}
+
 function matFromImageBitmap(cv, bitmap, targetW, targetH) {
   const canvas = new OffscreenCanvas(targetW, targetH);
   const ctx = canvas.getContext('2d');
@@ -125,6 +179,9 @@ async function processImage(cv, file, profile, config) {
     // occlusione parziale) — due cose diverse, non sommarle nel riepilogo batch.
     geom_filter_rejected: { aspect_ratio_estremo: 0, area_troppo_grande: 0 },
     geom_filter_flagged: { aspect_ratio: 0, area_piccola: 0 },
+    // Quanti blob grezzi sono stati fusi in rilevamenti unici su questa foto (0 = nessuna fusione
+    // avvenuta) — vedi mergeNearbyRects() sopra. Puramente informativo per il riepilogo batch.
+    blobs_merged: 0,
   };
 
   const gps = await readExifGps(file);
@@ -197,23 +254,33 @@ async function processImage(cv, file, profile, config) {
   cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const minAreaSmall = config.minAreaPxFullres * scale * scale;
-  const candidates = [];
+  const rawBlobs = []; // un blob per contorno, PRIMA della fusione dei vicini e del filtro geometrico
   for (let i = 0; i < contours.size(); i++) {
     const c = contours.get(i);
     const area = cv.contourArea(c);
-    if (area >= minAreaSmall) {
-      const rect = cv.boundingRect(c);
-      const check = evaluateGeometricFilter(rect, scale, gsdMPerPx, config.geomFilter);
-      if (check.tier === 'reject') {
-        if (result.geom_filter_rejected[check.rejectReason] !== undefined) {
-          result.geom_filter_rejected[check.rejectReason]++;
-        }
-      } else {
-        candidates.push({ area, rect, geomFlags: check.flags });
-      }
-    }
+    if (area >= minAreaSmall) rawBlobs.push({ area, rect: cv.boundingRect(c) });
     c.delete();
   }
+
+  // Fonde blob vicini/attaccati sulla stessa foto in un unico rilevamento (un solo ritaglio/cerchio
+  // nel Report) — vedi mergeNearbyRects sopra. La distanza è configurata in px della foto originale
+  // (config.geomFilter.mergeGapPx), va scalata alla risoluzione ridotta `small` usata qui.
+  const mergeGapPxSmall =
+    config.geomFilter && config.geomFilter.mergeGapPx > 0 ? config.geomFilter.mergeGapPx * scale : 0;
+  const mergedBlobs = mergeNearbyRects(rawBlobs, mergeGapPxSmall);
+  result.blobs_merged = Math.max(0, rawBlobs.length - mergedBlobs.length);
+
+  const candidates = [];
+  mergedBlobs.forEach((blob) => {
+    const check = evaluateGeometricFilter(blob.rect, scale, gsdMPerPx, config.geomFilter);
+    if (check.tier === 'reject') {
+      if (result.geom_filter_rejected[check.rejectReason] !== undefined) {
+        result.geom_filter_rejected[check.rejectReason]++;
+      }
+    } else {
+      candidates.push({ area: blob.area, rect: blob.rect, geomFlags: check.flags });
+    }
+  });
   candidates.sort((a, b) => b.area - a.area);
   const top = candidates.slice(0, config.maxDetectionsPerImage);
 
