@@ -5,7 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>SkyFind</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>" />
-<link rel="stylesheet" href="style.css" />
+<!--
+  APP_VERSION: cambia SOLO questo valore ad ogni modifica di un file .js o
+  .css dell'app (es. all'hash del commit, o incrementa di 1). Il "?v=..."
+  aggiunto agli URL qui sotto e in fondo alla pagina forza il browser a
+  scaricare la versione nuova invece di riusare quella in cache — senza
+  questo, un Ctrl+Shift+R a volte non basta a far vedere le modifiche
+  appena pubblicate. (opencv.js non è versionato: è una libreria esterna
+  pesante che non modifichiamo mai, meglio lasciarla in cache a lungo).
+-->
+<script>window.APP_VERSION = '2176c7d';</script>
+<script>document.write('<link rel="stylesheet" href="style.css?v=' + window.APP_VERSION + '" />');</script>
 </head>
 <body>
 <div id="sf-layout">
@@ -102,15 +112,38 @@
   </main>
 </div>
 
-<script src="drones_data.js"></script>
-<script src="color_calib.js"></script>
-<script src="geo_utils.js"></script>
-<script src="exif_gps.js"></script>
+<script>
+  // Carica gli script del progetto con "?v=APP_VERSION" per bypassare la cache del browser
+  // (vedi commento APP_VERSION in <head>). opencv.js resta senza versione: libreria esterna
+  // pesante mai modificata da noi, va bene tenerla in cache a lungo.
+  (function () {
+    var v = window.APP_VERSION;
+    var files = [
+      'drones_data.js',
+      'color_calib.js',
+      'geo_utils.js',
+      'exif_gps.js',
+    ];
+    files.forEach(function (f) {
+      document.write('<scr' + 'ipt src="' + f + '?v=' + v + '"></scr' + 'ipt>');
+    });
+  })();
+</script>
 <script src="opencv.js"></script>
-<script src="js/app.js"></script>
-<script src="js/mission_planner.js"></script>
-<script src="js/calibrazione.js"></script>
-<script src="js/batch.js"></script>
-<script src="js/report.js"></script>
+<script>
+  (function () {
+    var v = window.APP_VERSION;
+    var files = [
+      'js/app.js',
+      'js/mission_planner.js',
+      'js/calibrazione.js',
+      'js/batch.js',
+      'js/report.js',
+    ];
+    files.forEach(function (f) {
+      document.write('<scr' + 'ipt src="' + f + '?v=' + v + '"></scr' + 'ipt>');
+    });
+  })();
+</script>
 </body>
 </html>
