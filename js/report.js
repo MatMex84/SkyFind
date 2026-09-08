@@ -92,6 +92,88 @@ window.SF = window.SF || {};
     return clusters;
   }
 
+  /** Raggio (in pixel immagine) del cerchio che contorna un rilevamento — unica formula condivisa
+   *  fra disegno (drawCircles) e hit-test del click (findDetectionAt), così il punto cliccato
+   *  coincide sempre con il cerchio effettivamente visibile. */
+  function circleRadius(imgW, det) {
+    const [, , bw, bh] = det.bbox;
+    return Math.min(imgW * 0.09, Math.max(imgW * 0.018, Math.max(bw, bh) * 1.3));
+  }
+
+  /** Dato un click sul canvas dei cerchi, restituisce l'indice del rilevamento il cui cerchio
+   *  contiene il punto (o il più vicino se più cerchi si sovrappongono), oppure -1. Un margine del
+   *  25% oltre il bordo rende il cerchio facile da centrare anche col dito su smartphone. */
+  function findDetectionAt(canvas, img, dets, clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return -1;
+    const w = img.naturalWidth;
+    const x = ((clientX - rect.left) / rect.width) * w;
+    const y = ((clientY - rect.top) / rect.height) * img.naturalHeight;
+    let best = -1, bestDist = Infinity;
+    dets.forEach((d, i) => {
+      const [bx, by, bw, bh] = d.bbox;
+      const cx = bx + bw / 2, cy = by + bh / 2;
+      const dist = Math.hypot(x - cx, y - cy);
+      if (dist <= circleRadius(w, d) * 1.25 && dist < bestDist) { best = i; bestDist = dist; }
+    });
+    return best;
+  }
+
+  // Livelli di ingrandimento della lightbox contestuale: quante volte il raggio del cerchio
+  // entra nel lato del ritaglio (valore basso = più vicino al target, alto = più contesto).
+  const ZOOM_LEVELS = [1.3, 2, 3.5, 6];
+  const ZOOM_DEFAULT = 1;
+
+  /** Disegna, sul canvas della lightbox, il ritaglio a piena risoluzione della foto originale
+   *  attorno al rilevamento (non la miniatura crop_jpeg già ridotta): il cerchio viene ridisegnato
+   *  sopra così si vede esattamente COSA è stato rilevato e cosa c'è intorno. */
+  function renderZoomCanvas() {
+    const z = lightboxCurrent && lightboxCurrent.zoom;
+    if (!z) return;
+    const { det, img } = z;
+    const canvas = document.getElementById('sf-lightbox-canvas');
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const [bx, by, bw, bh] = det.bbox;
+    const cx = bx + bw / 2, cy = by + bh / 2;
+    const r = circleRadius(w, det);
+    const half = Math.max(90, r * ZOOM_LEVELS[st.zoomLevel]);
+    // finestra quadrata centrata sul target, riportata dentro i bordi immagine
+    let x0 = Math.round(cx - half), y0 = Math.round(cy - half);
+    const side = Math.round(half * 2);
+    x0 = Math.max(0, Math.min(w - side, x0));
+    y0 = Math.max(0, Math.min(h - side, y0));
+    const sw = Math.min(side, w), sh = Math.min(side, h);
+    // il canvas viene sempre ingrandito a ~900px di lato (o meno se la foto è più piccola) così
+    // anche un target di 30 pixel diventa leggibile senza sgranature da upscaling CSS
+    const target = 900;
+    const scale = Math.max(1, Math.min(target / sw, target / sh));
+    canvas.width = Math.round(sw * scale);
+    canvas.height = Math.round(sh * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, x0, y0, sw, sh, 0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    ctx.arc((cx - x0) * scale, (cy - y0) * scale, r * scale, 0, Math.PI * 2);
+    ctx.strokeStyle = '#F5A623';
+    ctx.lineWidth = Math.max(2, 3 * scale);
+    ctx.shadowColor = 'rgba(0,0,0,0.65)';
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    const lbl = document.getElementById('sf-lightbox-zoom-lbl');
+    if (lbl) lbl.textContent = `${Math.round((w / sw) * 10) / 10}×`;
+    document.getElementById('sf-lightbox-zoom-out').disabled = st.zoomLevel >= ZOOM_LEVELS.length - 1;
+    document.getElementById('sf-lightbox-zoom-in').disabled = st.zoomLevel <= 0;
+  }
+
+  function zoomStep(delta) {
+    if (!lightboxCurrent || !lightboxCurrent.zoom) return;
+    const next = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, st.zoomLevel + delta));
+    if (next === st.zoomLevel) return;
+    st.zoomLevel = next;
+    renderZoomCanvas();
+  }
+
   function drawCircles(canvas, img, dets, selectedIdx) {
     const w = img.naturalWidth, h = img.naturalHeight;
     canvas.width = w;
@@ -103,7 +185,7 @@ window.SF = window.SF || {};
     dets.forEach((d, i) => {
       const [bx, by, bw, bh] = d.bbox;
       const cx = bx + bw / 2, cy = by + bh / 2;
-      const r = Math.min(w * 0.09, Math.max(w * 0.018, Math.max(bw, bh) * 1.3));
+      const r = circleRadius(w, d);
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.strokeStyle = i === selectedIdx ? '#6EA8FE' : '#F5A623';
@@ -196,6 +278,12 @@ window.SF = window.SF || {};
       const canvas = document.createElement('canvas');
       img.src = fileUrl(item.file);
       img.addEventListener('load', () => drawCircles(canvas, img, item.dets, -1));
+      // click su un cerchio -> ingrandimento contestuale a piena risoluzione (lightbox sopra la Sfoglia)
+      canvas.addEventListener('click', (e) => {
+        if (!img.naturalWidth) return;
+        const i = findDetectionAt(canvas, img, item.dets, e.clientX, e.clientY);
+        if (i >= 0) openLightbox(item.dets[i], item.result, img);
+      });
       frame.appendChild(img);
       frame.appendChild(canvas);
     } else {
@@ -225,10 +313,27 @@ window.SF = window.SF || {};
     return `🔍 ${SF.escapeHtml(det.geom_warning)}`;
   }
 
-  function openLightbox(det, result) {
+  /** @param img  <img> della foto originale già caricata (opzionale): se presente la lightbox mostra
+   *              un ritaglio a piena risoluzione attorno al target con zoom regolabile (+/−, rotella,
+   *              tasti +/-); altrimenti ripiega sulla miniatura crop_jpeg prodotta dal worker. */
+  function openLightbox(det, result, img) {
     const box = document.getElementById('sf-lightbox');
-    lightboxCurrent = { det, result };
-    document.getElementById('sf-lightbox-img').src = cropUrl(det);
+    const canvas = document.getElementById('sf-lightbox-canvas');
+    const imgEl = document.getElementById('sf-lightbox-img');
+    const zoomBar = document.getElementById('sf-lightbox-zoom');
+    lightboxCurrent = { det, result, zoom: img ? { det, img } : null };
+    if (img) {
+      st.zoomLevel = ZOOM_DEFAULT;
+      imgEl.style.display = 'none';
+      canvas.style.display = 'block';
+      zoomBar.style.display = 'flex';
+      renderZoomCanvas();
+    } else {
+      imgEl.src = cropUrl(det);
+      imgEl.style.display = 'block';
+      canvas.style.display = 'none';
+      zoomBar.style.display = 'none';
+    }
     const shapeLine = shapeWarningLine(det);
     document.getElementById('sf-lightbox-caption').innerHTML =
       `${SF.escapeHtml(result.name)} — Confidenza: <strong>${SF.formatNum(det.confidence)}%</strong> · ` +
@@ -420,8 +525,10 @@ window.SF = window.SF || {};
       img.addEventListener('load', () => drawCircles(canvas, img, dets, selectedIdx));
       previewEl.appendChild(img);
       previewEl.appendChild(canvas);
-      previewEl.addEventListener('click', () => {
-        if (dets.length) openLightbox(dets[Math.max(0, selectedIdx)], result);
+      previewEl.addEventListener('click', (e) => {
+        if (!dets.length) return;
+        const hit = img.naturalWidth ? findDetectionAt(canvas, img, dets, e.clientX, e.clientY) : -1;
+        openLightbox(dets[hit >= 0 ? hit : Math.max(0, selectedIdx)], result, img.naturalWidth ? img : null);
       });
       window.addEventListener('resize', () => {
         if (img.complete && img.naturalWidth) drawCircles(canvas, img, dets, selectedIdx);
@@ -446,7 +553,7 @@ window.SF = window.SF || {};
           const img = previewEl.querySelector('img');
           const canvas = previewEl.querySelector('canvas');
           if (img && canvas && img.naturalWidth) drawCircles(canvas, img, dets, selectedIdx);
-          openLightbox(d, result);
+          openLightbox(d, result, img && img.naturalWidth ? img : null);
         });
         thumbsEl.appendChild(thumb);
       });
@@ -1093,6 +1200,12 @@ window.SF = window.SF || {};
     box.innerHTML = `
       <button class="sf-lightbox-close" id="sf-lightbox-close">×</button>
       <img id="sf-lightbox-img">
+      <canvas id="sf-lightbox-canvas" style="display:none;"></canvas>
+      <div class="sf-lightbox-zoom" id="sf-lightbox-zoom" style="display:none;">
+        <button class="sf-btn" id="sf-lightbox-zoom-out" title="Allarga (più contesto) — tasto −">−</button>
+        <span id="sf-lightbox-zoom-lbl" title="Ingrandimento rispetto alla foto intera"></span>
+        <button class="sf-btn" id="sf-lightbox-zoom-in" title="Avvicina (più dettaglio) — tasto +">+</button>
+      </div>
       <div class="sf-lightbox-caption" id="sf-lightbox-caption"></div>
       <button class="sf-btn" id="sf-lightbox-fp-btn" style="display:none; margin-top:0.6rem;">🚫 Segna come falso positivo</button>
     `;
@@ -1101,8 +1214,18 @@ window.SF = window.SF || {};
       if (e.target === box) box.classList.remove('open');
     });
     document.getElementById('sf-lightbox-close').addEventListener('click', () => box.classList.remove('open'));
+    document.getElementById('sf-lightbox-zoom-in').addEventListener('click', () => zoomStep(-1));
+    document.getElementById('sf-lightbox-zoom-out').addEventListener('click', () => zoomStep(1));
+    // rotella del mouse sul ritaglio: su = avvicina, giù = allarga
+    document.getElementById('sf-lightbox-canvas').addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoomStep(e.deltaY < 0 ? -1 : 1);
+    }, { passive: false });
     document.addEventListener('keydown', (e) => {
+      if (!box.classList.contains('open')) return;
       if (e.key === 'Escape') box.classList.remove('open');
+      else if (e.key === '+' || e.key === '=') zoomStep(-1);
+      else if (e.key === '-') zoomStep(1);
     });
     // Pulsante "falso positivo" (punto 6): mostrato solo in modalità revisione (impostazioni
     // avanzate del Report). Un solo listener qui, riusato per ogni apertura della lightbox tramite
