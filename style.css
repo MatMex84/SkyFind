@@ -237,7 +237,7 @@ table.sf-table th, table.sf-table td { text-align: left; padding: 0.35rem 0.6rem
 }
 .sf-lightbox.open { display: flex; }
 .sf-lightbox img { max-width: 92vw; max-height: 78vh; border-radius: 8px; }
-.sf-lightbox canvas { max-width: 92vw; max-height: 72vh; border-radius: 8px; cursor: zoom-in; }
+.sf-lightbox canvas { max-width: 92vw; max-height: 72vh; border-radius: 8px; cursor: zoom-out; } /* click chiude e torna alla foto/Sfoglia precedente */
 .sf-lightbox-zoom { display: flex; align-items: center; gap: 0.6rem; color: var(--text); font-size: 0.9rem; }
 .sf-lightbox-zoom .sf-btn { min-width: 2.4rem; padding: 0.25rem 0.6rem; font-size: 1.1rem; }
 .sf-lightbox-zoom span { min-width: 3rem; text-align: center; }

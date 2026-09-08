@@ -1225,11 +1225,18 @@ window.SF = window.SF || {};
     document.getElementById('sf-lightbox-close').addEventListener('click', () => box.classList.remove('open'));
     document.getElementById('sf-lightbox-zoom-in').addEventListener('click', () => zoomStep(-1));
     document.getElementById('sf-lightbox-zoom-out').addEventListener('click', () => zoomStep(1));
-    // rotella del mouse sul ritaglio: su = avvicina, giù = allarga
+    // rotella del mouse sul ritaglio: su = avvicina, giù = allarga (resta comunque disponibile
+    // per affinare lo zoom dopo il primo click)
     document.getElementById('sf-lightbox-canvas').addEventListener('wheel', (e) => {
       e.preventDefault();
       zoomStep(e.deltaY < 0 ? -1 : 1);
     }, { passive: false });
+    // Un click sul ritaglio ingrandito torna indietro (chiude la lightbox e mostra di nuovo la
+    // foto/Sfoglia da cui si era partiti) — richiesto esplicitamente: il click NON deve zoomare
+    // ulteriormente, per quello restano i pulsanti +/- e la rotella.
+    document.getElementById('sf-lightbox-canvas').addEventListener('click', () => {
+      box.classList.remove('open');
+    });
     document.addEventListener('keydown', (e) => {
       if (!box.classList.contains('open')) return;
       if (e.key === 'Escape') box.classList.remove('open');
