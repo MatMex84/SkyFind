@@ -480,8 +480,10 @@ window.SF = window.SF || {};
           fisso di base (come prima); con più punti si allarga in automatico in base a quanto il colore varia tra i
           punti scelti (pieghe, ombra, luce), fino a un tetto massimo per non introdurre troppi falsi positivi.</p>
       </details>
-      <button class="sf-btn primary" id="calib-save-btn">💾 Salva profilo</button>
-      <div id="calib-save-msg"></div>
+      <div class="sf-sticky-bar">
+        <div id="calib-save-msg"></div>
+        <button class="sf-btn primary" id="calib-save-btn">💾 Salva profilo</button>
+      </div>
     `;
 
     document.getElementById('calib-profile-name').addEventListener('input', (e) => {

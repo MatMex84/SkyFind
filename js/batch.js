@@ -276,7 +276,7 @@ window.SF = window.SF || {};
       out.innerHTML = '';
       return;
     }
-    out.innerHTML = `<button class="sf-btn primary" id="batch-start-btn">▶️ Avvia elaborazione batch</button>`;
+    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${st.files.length} foto pronte</span><button class="sf-btn primary" id="batch-start-btn">▶️ Avvia elaborazione batch</button></div>`;
     document.getElementById('batch-start-btn').addEventListener('click', runBatch);
   }
 
@@ -545,25 +545,20 @@ window.SF = window.SF || {};
       <div id="batch-camera-summary" style="margin-top:0.4rem;"></div>
 
       <h2 class="sf-section">3. Modalità di rilevamento</h2>
-      <div class="sf-grid-2">
-        <div>
-          <label class="sf-label">Come cercare il colore nelle foto?</label>
-          <select id="batch-detection-mode">
-            ${Object.entries(DETECTION_MODE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
-          </select>
-          <p class="sf-caption">"Massima precisione" è la più severa (un pixel deve superare due controlli invece di
-            uno): riduce i falsi positivi, ma su un indumento reale può mostrare una confidenza più bassa dello
-            "Standard" — non è un errore, è normale. Se non sei sicuro parti da "Standard".</p>
-        </div>
-        <div>
-          <label class="sf-label"><input type="checkbox" id="batch-require-gps"> Scarta foto senza posizione GPS</label>
-          <p class="sf-caption">Utile se vuoi solo target georiferiti sulla mappa nel report finale.</p>
-        </div>
-      </div>
+      <label class="sf-label">Come cercare il colore nelle foto?</label>
+      <select id="batch-detection-mode">
+        ${Object.entries(DETECTION_MODE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+      </select>
+      <p class="sf-caption">"Massima precisione" è la più severa (un pixel deve superare due controlli invece di
+        uno): riduce i falsi positivi, ma su un indumento reale può mostrare una confidenza più bassa dello
+        "Standard" — non è un errore, è normale. Se non sei sicuro parti da "Standard".</p>
 
       <details id="batch-advanced-settings" style="margin: 1rem 0;">
         <summary style="cursor:pointer; color:var(--muted);">⚙️ Impostazioni avanzate: camera GPS e filtro geometrico</summary>
         <div style="padding: 0.8rem 0 0.2rem;">
+          <label class="sf-label"><input type="checkbox" id="batch-require-gps"> Scarta foto senza posizione GPS</label>
+          <p class="sf-caption">Utile se vuoi solo target georiferiti sulla mappa nel report finale.</p>
+          <hr style="border-color:var(--border); margin: 1rem 0;">
           <h3 class="sf-section" style="font-size:1rem;">Camera e posizione GPS del target</h3>
           <p class="sf-caption">La posizione GPS (e la quota) vengono lette <strong>automaticamente dai metadati EXIF
             di ogni foto</strong>, nessuna azione richiesta qui sotto. Serve solo indicare la camera in uso — come nel

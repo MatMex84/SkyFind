@@ -110,7 +110,8 @@ window.SF = window.SF || {};
         <strong>${footW.toFixed(0)} x ${footH.toFixed(0)} m</strong> a terra — utile per stimare quante strisciate
         servono per coprire l'area di ricerca.
       </div>
-      <p><strong>Consigli pratici per lo scatto:</strong></p>
+      <details class="sf-expander">
+        <summary><strong>Consigli pratici per lo scatto</strong></summary>
       <ul>
         <li>Overlap: usa <strong>${FRONT_OVERLAP_MAX}% frontale / ${SIDE_OVERLAP_MAX}% laterale</strong> in bosco o su
           terreno complesso/accidentato (più foto = più probabilità di inquadrare il target tra rami e ombre); puoi
@@ -131,6 +132,7 @@ window.SF = window.SF || {};
         <li>Vola con luce diffusa quando possibile: ombre nette rendono più difficile il riconoscimento cromatico
           nel modulo di elaborazione.</li>
       </ul>
+      </details>
       <details class="sf-expander">
         <summary>Dettagli tecnici (sensore, otturatore e calcolo GSD)</summary>
         <table class="sf-table">

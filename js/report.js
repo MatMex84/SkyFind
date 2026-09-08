@@ -856,24 +856,34 @@ window.SF = window.SF || {};
     container.innerHTML = `
       <p class="sf-caption">Profilo colore usato: <strong>${SF.escapeHtml(profileName)}</strong> — ${results.length} foto analizzate,
         ${totalDetections} target individuati.</p>
-      <p class="sf-caption">Ogni rilevamento ha un <strong>punteggio</strong> (0-100%) che misura quanto il colore
-        <em>medio di tutta l'area rilevata</em> assomiglia al colore campionato — più alto è, più il rilevamento parte
-        in cima alla lista da controllare. <strong>Non è un verdetto "vero/falso positivo":</strong> un punteggio basso
-        può comunque essere un target reale, coperto da un'ombra, con luce diversa o tessuto sporco/bagnato — la
-        differenza la fa solo l'occhio di chi rivede la foto. Per questo qui sotto vedi <em>tutti</em> i rilevamenti,
-        dal più al meno probabile: nessuno viene nascosto o escluso dall'export a meno che tu non lo decida
-        esplicitamente nelle impostazioni avanzate.</p>
+
+      <div style="margin: 0.6rem 0 1rem;">
+        <button class="sf-btn primary" id="report-browse-btn">🖼️ Sfoglia foto in sequenza</button>
+        <span class="sf-caption" style="margin-left:0.6rem;">Vista a schermo intero, foto per foto, con frecce ← →.</span>
+      </div>
+
       <div id="report-metrics"></div>
 
       <div id="report-confidence-controls" style="margin: 0.8rem 0;">
         <label class="sf-label">Punteggio minimo da mostrare a schermo (%)</label>
         <input type="range" id="report-confidence-slider" min="0" max="100" step="1" value="${st.minConfidence}">
         <p class="sf-caption" id="report-confidence-value">${st.minConfidence}%</p>
-        <p class="sf-caption">Restringe solo la lista mostrata qui sotto (schede, Sfoglia, lightbox) per concentrarti
-          sui rilevamenti più probabili durante la revisione — riportalo a 0 in qualsiasi momento per rivedere tutto.
-          <strong>Non cancella nulla</strong>: i rilevamenti sotto soglia restano nei dati e, per default, restano
-          anche nell'export sotto.</p>
       </div>
+
+      <details class="sf-expander" style="margin: 0.6rem 0;">
+        <summary>Come leggere il punteggio</summary>
+        <p class="sf-caption">Ogni rilevamento ha un <strong>punteggio</strong> (0-100%) che misura quanto il colore
+          <em>medio di tutta l'area rilevata</em> assomiglia al colore campionato — più alto è, più il rilevamento parte
+          in cima alla lista da controllare. <strong>Non è un verdetto "vero/falso positivo":</strong> un punteggio basso
+          può comunque essere un target reale, coperto da un'ombra, con luce diversa o tessuto sporco/bagnato — la
+          differenza la fa solo l'occhio di chi rivede la foto. Per questo qui sotto vedi <em>tutti</em> i rilevamenti,
+          dal più al meno probabile: nessuno viene nascosto o escluso dall'export a meno che tu non lo decida
+          esplicitamente nelle impostazioni avanzate.</p>
+        <p class="sf-caption">Lo slider sopra restringe solo la lista mostrata qui sotto (schede, Sfoglia, lightbox) per
+          concentrarti sui rilevamenti più probabili durante la revisione — riportalo a 0 in qualsiasi momento per
+          rivedere tutto. <strong>Non cancella nulla</strong>: i rilevamenti sotto soglia restano nei dati e, per
+          default, restano anche nell'export più sotto.</p>
+      </details>
 
       <details id="report-advanced-settings" style="margin: 0.8rem 0;">
         <summary style="cursor:pointer; color:var(--muted);">⚙️ Impostazioni avanzate</summary>
@@ -899,10 +909,6 @@ window.SF = window.SF || {};
           <div id="report-review-panel"></div>
         </div>
       </details>
-      <div style="margin: 0.8rem 0 0.4rem;">
-        <button class="sf-btn primary" id="report-browse-btn">🖼️ Sfoglia foto in sequenza</button>
-        <span class="sf-caption" style="margin-left:0.6rem;">Vista a schermo intero, foto per foto, con frecce ← →.</span>
-      </div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
 
       <div class="sf-radio-row" id="report-view-radio">
@@ -921,17 +927,20 @@ window.SF = window.SF || {};
       <div id="report-cards"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
       <h2 class="sf-section">Esporta report</h2>
-      <div style="display:flex; gap:0.8rem; flex-wrap:wrap;">
-        <button class="sf-btn" id="report-export-html">⬇️ Scarica report HTML</button>
-        <button class="sf-btn" id="report-export-csv">⬇️ Scarica CSV rilevamenti</button>
-        <button class="sf-btn" id="report-export-kml">⬇️ Scarica KML</button>
-        <button class="sf-btn" id="report-export-geojson">⬇️ Scarica GeoJSON</button>
-      </div>
+      <button class="sf-btn primary" id="report-export-html">⬇️ Scarica report HTML</button>
       <p class="sf-caption" id="report-export-note"></p>
-      <p class="sf-caption">KML e GeoJSON (per Google Earth, QGIS e altri software di mappe) includono solo i
-        rilevamenti con posizione GPS del target calcolabile: un formato geografico può rappresentare solo punti
-        con una posizione — quelli senza restano comunque nell'HTML e nel CSV sopra.</p>
-      <p class="sf-caption" id="report-geo-export-note"></p>
+      <details class="sf-expander" style="margin-top:0.6rem;">
+        <summary>Altri formati (CSV, KML, GeoJSON)</summary>
+        <div style="display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:0.6rem;">
+          <button class="sf-btn" id="report-export-csv">⬇️ Scarica CSV rilevamenti</button>
+          <button class="sf-btn" id="report-export-kml">⬇️ Scarica KML</button>
+          <button class="sf-btn" id="report-export-geojson">⬇️ Scarica GeoJSON</button>
+        </div>
+        <p class="sf-caption">KML e GeoJSON (per Google Earth, QGIS e altri software di mappe) includono solo i
+          rilevamenti con posizione GPS del target calcolabile: un formato geografico può rappresentare solo punti
+          con una posizione — quelli senza restano comunque nell'HTML e nel CSV sopra.</p>
+        <p class="sf-caption" id="report-geo-export-note"></p>
+      </details>
     `;
 
     document.getElementById('report-confidence-slider').addEventListener('input', (e) => {
