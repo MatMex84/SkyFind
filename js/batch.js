@@ -60,6 +60,7 @@ window.SF = window.SF || {};
   const st = {
     built: false,
     sourceMode: 'folder', // 'folder' | 'upload'
+    excludeColors: [], // colori da ESCLUDERE: [{ name, hex, profile }] — solo per questa sessione, mai salvati (nascondono pixel: meglio che si vedano sempre)
     extraProfiles: new Set(), // nomi dei profili AGGIUNTIVI cercati nello stesso lotto (oltre a quello scelto nella select)
     files: [],
     detectionMode: 'hsv',
@@ -301,6 +302,11 @@ window.SF = window.SF || {};
   }
 
   function renderExtraProfiles() {
+    renderExtraProfilesList();
+    renderExclusions();
+  }
+
+  function renderExtraProfilesList() {
     const out = document.getElementById('batch-extra-profiles');
     const sel = document.getElementById('batch-profile-select');
     if (!out || !sel) return;
@@ -329,6 +335,69 @@ window.SF = window.SF || {};
         renderExtraProfiles();
         renderStartSection();
       });
+    });
+  }
+
+  // ------------------------------------------------------------- colori da escludere
+  function labDist(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); }
+
+  /** Aggiunge un colore (RGB) all'elenco delle esclusioni, con tolleranza di base (NON allargata: meglio
+   *  un falso positivo in più che un target vero nascosto in silenzio — si possono aggiungere più sfumature). */
+  async function addExclusionColor(rgb, label) {
+    const hex = '#' + rgb.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+    if (st.excludeColors.some((e) => e.hex === hex)) return;
+    const cv = await SF.loadCv();
+    const profile = computeProfileFromSamples(cv, [SF.solidPatch(rgb.map(Math.round))], {});
+    profile.name = `escluso_${hex.slice(1)}`;
+    st.excludeColors.push({ name: label ? `${label} ${hex}` : hex, hex, profile });
+    renderExclusions();
+    renderStartSection();
+  }
+
+  function renderExclusions() {
+    const out = document.getElementById('batch-exclusions');
+    if (!out) return;
+    const n = st.excludeColors.length;
+    // avviso: un colore escluso troppo vicino a un profilo cercato eliminerebbe anche il target
+    const sel = document.getElementById('batch-profile-select');
+    const targets = [];
+    if (sel && SF.getProfile(sel.value)) targets.push(SF.getProfile(sel.value));
+    st.extraProfiles.forEach((nm) => { const p = SF.getProfile(nm); if (p) targets.push(p); });
+    const clashes = st.excludeColors.filter((e) => targets.some((t) => labDist(e.profile.mean_lab, t.mean_lab) < 30));
+    out.innerHTML = `
+      <details class="sf-expander"${n ? ' open' : ''}>
+        <summary>🚫 Colori da escludere${n ? ` (${n})` : ''}</summary>
+        <p class="sf-caption">Utile quando qualcosa di <em>quasi dello stesso colore</em> del target riempie la scena
+          (papaveri, un tetto, un veicolo): i pixel di questo colore vengono tolti dalla ricerca. Attenzione: non
+          vale solo per quell'oggetto — qualunque cosa di quel colore sparisce, target compreso se gli somiglia.
+          Per prudenza la tolleranza è stretta: se il colore varia, aggiungi più sfumature.
+          Le esclusioni valgono solo per questa elaborazione (non vengono salvate).</p>
+        <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin:0.4rem 0;">
+          ${st.excludeColors
+            .map(
+              (e, i) => `<span class="sf-module-pill" style="color:var(--text); border-color:var(--border); background:var(--panel-soft);">
+                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${e.hex};margin-right:4px;border:1px solid rgba(255,255,255,0.3);"></span>${SF.escapeHtml(e.name)}
+                <span class="batch-excl-del" data-i="${i}" title="Rimuovi" style="cursor:pointer; margin-left:0.3rem; color:var(--danger);">✕</span></span>`
+            )
+            .join('')}
+        </div>
+        ${clashes.length ? `<div class="sf-warning">⚠️ ${clashes.map((e) => SF.escapeHtml(e.name)).join(', ')} è molto vicino al colore che stai cercando: l'esclusione rischia di eliminare anche il target.</div>` : ''}
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+          <input type="color" id="batch-exclude-color" value="#c82828" style="width:60px; height:36px; padding:2px; cursor:pointer;">
+          <button class="sf-btn" id="batch-exclude-add">🚫 Escludi questo colore</button>
+          <span class="sf-caption">oppure usa "🚫 Escludi" sui colori suggeriti dalla scena qui sotto.</span>
+        </div>
+      </details>`;
+    out.querySelectorAll('.batch-excl-del').forEach((el) => {
+      el.addEventListener('click', () => {
+        st.excludeColors.splice(parseInt(el.dataset.i, 10), 1);
+        renderExclusions();
+        renderStartSection();
+      });
+    });
+    document.getElementById('batch-exclude-add').addEventListener('click', () => {
+      const h = document.getElementById('batch-exclude-color').value;
+      addExclusionColor([parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)], 'Colore');
     });
   }
 
@@ -412,6 +481,7 @@ window.SF = window.SF || {};
                 <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
                   <button class="sf-btn" data-scene-idx="${i}">Usa questo colore</button>
                   <button class="sf-btn" data-scene-add="${i}" title="Cerca anche questo colore, oltre al profilo già scelto">＋ Aggiungi</button>
+                  <button class="sf-btn" data-scene-excl="${i}" title="Togli questo colore dalla ricerca (es. papaveri, tetti)">🚫 Escludi</button>
                 </div>
               </div>
             </div>`
@@ -439,6 +509,14 @@ window.SF = window.SF || {};
         refreshProfileSelect(profile.name);
         btn.disabled = false;
         btn.textContent = '✓ Selezionato';
+      });
+    });
+    out.querySelectorAll('button[data-scene-excl]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const c = sc.candidates[parseInt(btn.dataset.sceneExcl, 10)];
+        await addExclusionColor(c.rgb, c.name);
+        btn.textContent = '✓ Escluso';
+        btn.disabled = true;
       });
     });
     out.querySelectorAll('button[data-scene-add]').forEach((btn) => {
@@ -471,7 +549,7 @@ window.SF = window.SF || {};
     }
     const selEl = document.getElementById('batch-profile-select');
     const hasProfile = !!(selEl && SF.getProfile(selEl.value));
-    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${hasProfile ? st.files.length + ' foto pronte' + (st.extraProfiles.size ? ' · ' + (1 + st.extraProfiles.size) + ' profili colore' : '') : 'Scegli o crea un profilo colore (anche dai colori suggeriti) per avviare'}</span><button class="sf-btn primary" id="batch-start-btn" ${hasProfile ? '' : 'disabled'}>▶️ Avvia elaborazione batch</button></div>`;
+    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${hasProfile ? st.files.length + ' foto pronte' + (st.extraProfiles.size ? ' · ' + (1 + st.extraProfiles.size) + ' profili colore' : '') + (st.excludeColors.length ? ' · ' + st.excludeColors.length + ' colori esclusi' : '') : 'Scegli o crea un profilo colore (anche dai colori suggeriti) per avviare'}</span><button class="sf-btn primary" id="batch-start-btn" ${hasProfile ? '' : 'disabled'}>▶️ Avvia elaborazione batch</button></div>`;
     document.getElementById('batch-start-btn').addEventListener('click', runBatch);
   }
 
@@ -636,6 +714,7 @@ window.SF = window.SF || {};
       sensor: resolveGeorefSensor(), // per il GSD/posizione GPS del target, non per il rilevamento colore
       fallbackAltitudeM: st.georef.fallbackAltitudeM,
       geomFilter: st.geomFilter,
+      excludeProfiles: st.excludeColors.map((e) => e.profile),
     };
 
     const files = st.files;
@@ -668,6 +747,7 @@ window.SF = window.SF || {};
       SF.state.batchProfile = profs[0].profile; // primo profilo (compatibilita' col codice a profilo singolo)
       SF.state.batchProfiles = profs.map((x) => ({ name: x.name, profile: x.profile, hex: profileHexColor(cv, x.profile) }));
       SF.state.batchConfig = config;
+      SF.state.batchExcluded = st.excludeColors.map((e) => ({ name: e.name, hex: e.hex }));
       SF.updateSidebarStatus();
       renderBatchSummary(elapsed);
       renderStartSection();
@@ -728,6 +808,7 @@ window.SF = window.SF || {};
     const out = document.getElementById('batch-results-section');
     out.innerHTML = `
       <div class="sf-success">Elaborazione completata in ${elapsed.toFixed(1)}s (${(results.length / elapsed).toFixed(1)} foto/s).</div>
+      ${(SF.state.batchExcluded || []).length ? `<p class="sf-caption" style="margin-top:0.5rem;">🚫 Colori esclusi in questa elaborazione: ${SF.state.batchExcluded.map((e) => SF.escapeHtml(e.name)).join(', ')}.</p>` : ''}
       <div class="sf-grid-4">
         <div class="sf-metric"><div class="sf-metric-label">Foto elaborate</div><div class="sf-metric-value">${results.length}</div></div>
         <div class="sf-metric"><div class="sf-metric-label">Foto con rilevamenti</div><div class="sf-metric-value">${withDetections}</div></div>
@@ -791,6 +872,7 @@ window.SF = window.SF || {};
       <select id="batch-profile-select">${profileOptions}</select>
       <div id="batch-profile-swatch" style="margin-top:0.5rem;"></div>
       <div id="batch-extra-profiles" style="margin-top:0.6rem;"></div>
+      <div id="batch-exclusions" style="margin-top:0.6rem;"></div>
       <div id="batch-scene-colors" style="margin-top:0.6rem;"></div>
 
       <h2 class="sf-section">2. Sorgente immagini</h2>

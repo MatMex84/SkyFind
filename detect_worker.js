@@ -167,6 +167,28 @@ async function encodeCropJpeg(bitmap, x0, y0, w, h) {
   return buf; // trasferibile al thread principale senza copia (Transferable)
 }
 
+/**
+ * Colori da escludere (Elaborazione Batch): toglie dalla maschera del target i pixel che corrispondono
+ * a uno o più profili "da escludere" (es. il rosso dei papaveri, di un tetto, di un veicolo), PRIMA
+ * dei contorni e del filtro geometrico — quindi un blob fatto solo di pixel esclusi sparisce, e uno
+ * solo parzialmente sovrapposto perde soltanto la parte esclusa. La maschera di esclusione usa lo
+ * stesso spazio colore e la stessa pulizia morfologica della ricerca del target, e lo stesso buffer
+ * già normalizzato (gray-world). Non fa nulla senza `config.excludeProfiles`.
+ */
+function applyColorExclusions(cv, mask, rgbMat, config) {
+  const ex = config.excludeProfiles;
+  if (!ex || !ex.length) return;
+  for (const prof of ex) {
+    const exMask = buildMask(cv, rgbMat, prof, config.colorSpace, config.morphKernel);
+    const inv = new cv.Mat();
+    cv.bitwise_not(exMask, inv);
+    const out = new cv.Mat();
+    cv.bitwise_and(mask, inv, out);
+    out.copyTo(mask);
+    exMask.delete(); inv.delete(); out.delete();
+  }
+}
+
 async function processImage(cv, file, profile, config) {
   const result = {
     name: file.name, width: 0, height: 0,
@@ -248,6 +270,7 @@ async function processImage(cv, file, profile, config) {
   applyGrayWorldGains(small.data, small.rows * small.cols, grayWorldGains, 3);
 
   const mask = buildMask(cv, small, profile, config.colorSpace, config.morphKernel);
+  applyColorExclusions(cv, mask, small, config);
 
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
@@ -315,6 +338,7 @@ async function processImage(cv, file, profile, config) {
     applyGrayWorldGains(cropRgb.data, cropRgb.rows * cropRgb.cols, grayWorldGains, 3);
 
     const cropMask = buildMask(cv, cropRgb, profile, config.colorSpace, config.morphKernel);
+    applyColorExclusions(cv, cropMask, cropRgb, config);
     const cropLab = new cv.Mat();
     cv.cvtColor(cropRgb, cropLab, cv.COLOR_RGB2Lab);
 

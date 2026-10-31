@@ -898,7 +898,10 @@ window.SF = window.SF || {};
       return;
     }
     results.forEach((r, i) => (r._idx = i));
-    const profileName = SF.state.batchProfileName || 'n/d';
+    const excludedNote = (SF.state.batchExcluded || []).length
+      ? ' · colori esclusi: ' + SF.state.batchExcluded.map((e) => e.name).join(', ')
+      : ''; // un'esclusione nasconde pixel: va sempre dichiarata accanto ai risultati e negli export
+    const profileName = (SF.state.batchProfileName || 'n/d') + excludedNote;
     const totalDetections = results.reduce((s, r) => s + (r.detections ? r.detections.length : 0), 0);
 
     container.innerHTML = `
