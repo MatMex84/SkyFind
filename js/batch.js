@@ -60,7 +60,9 @@ window.SF = window.SF || {};
   const st = {
     built: false,
     sourceMode: 'folder', // 'folder' | 'upload'
-    excludeColors: [], // colori da ESCLUDERE: [{ name, hex, profile }] — solo per questa sessione, mai salvati (nascondono pixel: meglio che si vedano sempre)
+    excludeColors: [],
+    tolScale: {}, // nome profilo -> fattore di riduzione tolleranza scelto per questa elaborazione
+    fitCache: {}, // colori da ESCLUDERE: [{ name, hex, profile }] — solo per questa sessione, mai salvati (nascondono pixel: meglio che si vedano sempre)
     extraProfiles: new Set(), // nomi dei profili AGGIUNTIVI cercati nello stesso lotto (oltre a quello scelto nella select)
     files: [],
     detectionMode: 'hsv',
@@ -416,6 +418,8 @@ window.SF = window.SF || {};
 
   function startSceneAnalysis() {
     const token = ++sceneToken;
+    st.tolScale = {};
+    st.fitCache = {};
     if (!st.files.length || typeof SF.analyzeSceneColors !== 'function') {
       st.scene = null;
       renderSceneColors();
@@ -434,6 +438,7 @@ window.SF = window.SF || {};
         if (token !== sceneToken) return;
         st.scene = { status: 'done', ...res };
         renderSceneColors();
+        updateSceneFit();
       })
       .catch(() => {
         if (token !== sceneToken) return;
@@ -549,8 +554,51 @@ window.SF = window.SF || {};
     }
     const selEl = document.getElementById('batch-profile-select');
     const hasProfile = !!(selEl && SF.getProfile(selEl.value));
-    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${hasProfile ? st.files.length + ' foto pronte' + (st.extraProfiles.size ? ' · ' + (1 + st.extraProfiles.size) + ' profili colore' : '') + (st.excludeColors.length ? ' · ' + st.excludeColors.length + ' colori esclusi' : '') : 'Scegli o crea un profilo colore (anche dai colori suggeriti) per avviare'}</span><button class="sf-btn primary" id="batch-start-btn" ${hasProfile ? '' : 'disabled'}>▶️ Avvia elaborazione batch</button></div>`;
+    out.innerHTML = `<div id="batch-scene-fit"></div><div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${hasProfile ? st.files.length + ' foto pronte' + (st.extraProfiles.size ? ' · ' + (1 + st.extraProfiles.size) + ' profili colore' : '') + (st.excludeColors.length ? ' · ' + st.excludeColors.length + ' colori esclusi' : '') : 'Scegli o crea un profilo colore (anche dai colori suggeriti) per avviare'}</span><button class="sf-btn primary" id="batch-start-btn" ${hasProfile ? '' : 'disabled'}>▶️ Avvia elaborazione batch</button></div>`;
     document.getElementById('batch-start-btn').addEventListener('click', runBatch);
+    updateSceneFit();
+  }
+
+  // ------------------------------------------------------------- tolleranza adattiva alla scena
+  let fitToken = 0;
+  function selectedProfileNames() {
+    const selEl = document.getElementById('batch-profile-select');
+    const names = [];
+    if (selEl && SF.getProfile(selEl.value)) names.push(selEl.value);
+    st.extraProfiles.forEach((n) => { if (n !== (selEl && selEl.value) && SF.getProfile(n)) names.push(n); });
+    return names;
+  }
+
+  async function updateSceneFit() {
+    const box = document.getElementById('batch-scene-fit');
+    if (!box) return;
+    const bg = st.scene && st.scene.status === 'done' ? st.scene.bg : null;
+    if (!bg) { box.innerHTML = ''; return; }
+    const token = ++fitToken;
+    const cv = await SF.loadCv();
+    if (token !== fitToken) return;
+    const rows = [];
+    for (const name of selectedProfileNames()) {
+      const prof = SF.getProfile(name);
+      const key = name + '|' + st.detectionMode + '|' + JSON.stringify(prof.tolerance_lab) + JSON.stringify(prof.mean_lab);
+      if (!(key in st.fitCache)) st.fitCache[key] = SF.sceneFit(cv, prof, st.detectionMode, bg);
+      const fit = st.fitCache[key];
+      if (!fit || !fit.warn) continue;
+      const pct = (v) => (v * 100).toFixed(v < 0.1 ? 1 : 0).replace('.', ',') + '%';
+      const on = st.tolScale[name];
+      rows.push(`<div class="sf-warning" style="margin-bottom:0.4rem;padding:0.5rem 0.7rem;">⚠️ <strong>${name}</strong>: il ${pct(fit.frac)} dello sfondo campionato rientra già in questo profilo → attesi molti falsi positivi.
+        ${on
+          ? `<strong>Tolleranza ridotta (×${on})</strong> per questa elaborazione. <button class="sf-btn" data-fit-off="${name}">Annulla</button>`
+          : `<button class="sf-btn" data-fit-on="${name}" data-fit-scale="${fit.scale}">Restringi tolleranza ×${fit.scale} (sfondo → ${pct(fit.fracAfter)})</button>${fit.reached ? '' : ' <span class="sf-caption">neanche al minimo il profilo si separa del tutto dallo sfondo: valuta un altro colore o un’esclusione.</span>'}`}
+        </div>`);
+    }
+    box.innerHTML = rows.join('');
+    box.querySelectorAll('[data-fit-on]').forEach((b) => b.addEventListener('click', () => {
+      st.tolScale[b.dataset.fitOn] = parseFloat(b.dataset.fitScale); updateSceneFit();
+    }));
+    box.querySelectorAll('[data-fit-off]').forEach((b) => b.addEventListener('click', () => {
+      delete st.tolScale[b.dataset.fitOff]; updateSceneFit();
+    }));
   }
 
   // ------------------------------------------------------------- pool di worker
@@ -693,6 +741,9 @@ window.SF = window.SF || {};
       const p = SF.getProfile(n);
       if (p && n !== profileName) profs.push({ name: n, profile: p });
     });
+    // tolleranza adattiva: solo per questa elaborazione, il profilo salvato non cambia
+    profs.forEach((x) => { const sc = st.tolScale[x.name]; if (sc && sc < 1) x.profile = SF.scaleProfileTolerance(x.profile, sc); });
+    SF.state.batchTolNote = profs.filter((x) => x.profile.tol_scale).map((x) => x.name + ' ×' + x.profile.tol_scale);
 
     st.running = true;
     document.getElementById('batch-start-section').innerHTML = '';
@@ -958,7 +1009,7 @@ window.SF = window.SF || {};
       <div id="batch-results-section"></div>
     `;
 
-    document.getElementById('batch-detection-mode').addEventListener('change', (e) => (st.detectionMode = e.target.value));
+    document.getElementById('batch-detection-mode').addEventListener('change', (e) => { st.detectionMode = e.target.value; updateSceneFit(); });
     document.getElementById('batch-require-gps').addEventListener('change', (e) => (st.requireGps = e.target.checked));
 
     document.getElementById('batch-drone-select').value = st.georef.droneId;

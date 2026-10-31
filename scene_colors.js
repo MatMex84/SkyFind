@@ -41,6 +41,7 @@ window.SF = window.SF || {};
   const MAX_CANDIDATES = 6;
   const CELL = 16; // lato (px miniatura) della cella per trovare dove il colore è più concentrato
   const CROP = 56; // lato (px miniatura) dell'esempio ritagliato
+  const BG_STRIDE = 7; // 1 pixel ogni 7 finisce nel campione di sfondo (per la tolleranza adattiva)
 
   function hueName(h) {
     if (h < 15 || h >= 345) return 'Rosso';
@@ -112,6 +113,8 @@ window.SF = window.SF || {};
     const tot = { count: new Float64Array(nBins), r: new Float64Array(nBins), g: new Float64Array(nBins), b: new Float64Array(nBins) };
     const photos = []; // { name, canvas, data, w, h, count:Int32Array }
     let totalPixels = 0;
+    const bgChunks = []; // campione RGB dello sfondo (dopo gray-world), per SF.sceneFit
+    let bgCount = 0;
 
     for (let i = 0; i < sample.length; i++) {
       const th = await loadThumb(sample[i]);
@@ -125,6 +128,15 @@ window.SF = window.SF || {};
         const gains = computeGrayWorldGains(data, nPx, 4);
         applyGrayWorldGains(data, nPx, gains, 4);
         const count = new Int32Array(nBins);
+        const bgBuf = new Uint8Array(Math.ceil(nPx / BG_STRIDE) * 3);
+        let bgN = 0;
+        for (let p = 0; p < nPx; p += BG_STRIDE) {
+          const k = p * 4;
+          bgBuf[bgN * 3] = data[k]; bgBuf[bgN * 3 + 1] = data[k + 1]; bgBuf[bgN * 3 + 2] = data[k + 2];
+          bgN++;
+        }
+        bgChunks.push(bgBuf.subarray(0, bgN * 3));
+        bgCount += bgN;
         for (let p = 0; p < nPx; p++) {
           const k = p * 4;
           const bin = binOf(data[k], data[k + 1], data[k + 2]);
@@ -140,7 +152,11 @@ window.SF = window.SF || {};
       if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0)); // lascia respirare l'interfaccia
     }
 
-    if (!photos.length || !totalPixels) return { candidates: [], nAnalyzed: 0, nTotal: files.length };
+    if (!photos.length || !totalPixels) return { candidates: [], nAnalyzed: 0, nTotal: files.length, bg: null };
+
+    const bgData = new Uint8Array(bgCount * 3);
+    { let o = 0; for (const c of bgChunks) { bgData.set(c, o); o += c.length; } }
+    const bg = { data: bgData, n: bgCount };
 
     // ---- selezione dei bin candidati
     const N = photos.length;
@@ -212,7 +228,45 @@ window.SF = window.SF || {};
       };
     });
 
-    return { candidates, nAnalyzed: N, nTotal: files.length };
+    return { candidates, nAnalyzed: N, nTotal: files.length, bg };
+  };
+
+  // ---- Tolleranza adattiva alla scena (punto 4) -------------------------------------------------
+  /** Profilo con le tolleranze moltiplicate per `scale` (la media resta: il colore cercato non cambia). */
+  SF.scaleProfileTolerance = function (profile, scale) {
+    const p = JSON.parse(JSON.stringify(profile));
+    p.tolerance_hsv = p.tolerance_hsv.map((t) => t * scale);
+    p.tolerance_lab = p.tolerance_lab.map((t) => t * scale);
+    p.tol_scale = Math.round(scale * 100) / 100;
+    return p;
+  };
+
+  /** Frazione (0..1) dei pixel di sfondo campionati che cadono nel profilo (stessa maschera del rilevamento, senza morfologia). */
+  SF.sceneMatchFraction = function (cv, profile, colorSpace, bg) {
+    if (!bg || !bg.n) return null;
+    const mat = new cv.Mat(1, bg.n, cv.CV_8UC3);
+    mat.data.set(bg.data);
+    const mask = buildMask(cv, mat, profile, colorSpace, 1);
+    const frac = cv.countNonZero(mask) / bg.n;
+    mat.delete(); mask.delete();
+    return frac;
+  };
+
+  const FIT_WARN = 0.015;   // oltre l'1,5% dello sfondo nel profilo: avviso
+  const FIT_TARGET = 0.005; // si restringe finché lo sfondo coperto scende sotto lo 0,5%
+  const FIT_MIN_SCALE = 0.5; // mai sotto metà della tolleranza: oltre si perderebbe il bersaglio reale
+
+  /** Valuta quanto lo sfondo della scena "somiglia" al profilo. Torna { frac, warn, scale, fracAfter, reached } oppure null. */
+  SF.sceneFit = function (cv, profile, colorSpace, bg) {
+    const frac = SF.sceneMatchFraction(cv, profile, colorSpace, bg);
+    if (frac === null) return null;
+    if (frac < FIT_WARN) return { frac, warn: false };
+    let scale = 1, fracAfter = frac;
+    while (scale > FIT_MIN_SCALE + 1e-9 && fracAfter >= FIT_TARGET) {
+      scale = Math.max(FIT_MIN_SCALE, scale - 0.1);
+      fracAfter = SF.sceneMatchFraction(cv, SF.scaleProfileTolerance(profile, scale), colorSpace, bg);
+    }
+    return { frac, warn: true, scale: Math.round(scale * 100) / 100, fracAfter, reached: fracAfter < FIT_TARGET };
   };
 
   /** Patch RGBA 9×9 di un colore esatto, nel formato atteso da computeProfileFromSamples (come la modalità Palette). */
