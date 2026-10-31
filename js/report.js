@@ -354,7 +354,7 @@ window.SF = window.SF || {};
     document.getElementById('sf-lightbox-caption').innerHTML =
       `${SF.escapeHtml(result.name)} — Confidenza: <strong>${SF.formatNum(det.confidence)}%</strong> · ` +
       `Area: ${SF.formatNum(det.fill_ratio)}% · bbox: x=${det.bbox[0]} y=${det.bbox[1]} w=${det.bbox[2]} h=${det.bbox[3]}<br>` +
-      targetGeoLine(det) + (profileLine(det) ? `<br>${profileLine(det)}` : '') + (shapeLine ? `<br>${shapeLine}` : '');
+      targetGeoLine(det) + (profileLine(det) ? `<br>${profileLine(det)}` : '') + (det.small_pass ? '<br>🔎 Trovato dalla ricerca bersagli piccoli' : '') + (shapeLine ? `<br>${shapeLine}` : '');
     const fpBtn = document.getElementById('sf-lightbox-fp-btn');
     if (fpBtn) fpBtn.style.display = st.reviewMode ? 'inline-block' : 'none';
     box.classList.add('open');
@@ -410,6 +410,29 @@ window.SF = window.SF || {};
    *  l'elenco "annulla" del pannello di revisione viene azzerato perché si riferirebbe a oggetti
    *  detection ormai sostituiti da rilevamenti nuovi.
    */
+  // ---- seconda passata (bersagli piccoli): banner di avanzamento. I nuovi rilevamenti entrano in
+  // SF.state.batchResults man mano, ma la vista cambia solo quando l'utente lo chiede (non si sposta nulla mentre guarda).
+  function updateSmallPassBanner() {
+    const el = document.getElementById('report-smallpass');
+    if (!el) return;
+    const sp = SF.state.smallPass;
+    if (!sp) { el.innerHTML = ''; return; }
+    const fresh = sp.added - (st.shownSmallAdded || 0);
+    const showBtn = fresh > 0 ? `<button class="sf-btn" id="report-smallpass-show">Mostra ${fresh} nuovi</button>` : '';
+    let msg;
+    if (sp.status === 'running') msg = `🔎 Ricerca bersagli piccoli in corso: ${sp.done}/${sp.total} foto · ${sp.added} nuovi trovati. Puoi continuare a guardare i risultati.`;
+    else if (sp.status === 'done') msg = sp.added ? `✓ Ricerca bersagli piccoli completata: ${sp.added} nuovi rilevamenti aggiunti (🔎).` : '✓ Ricerca bersagli piccoli completata: nessun rilevamento in più.';
+    else if (sp.status === 'cancelled') msg = `Ricerca bersagli piccoli interrotta (${sp.added} nuovi trovati).`;
+    else msg = 'Ricerca bersagli piccoli non riuscita: restano i risultati della prima passata.';
+    const stopBtn = sp.status === 'running' ? '<button class="sf-btn" id="report-smallpass-stop">Interrompi</button>' : '';
+    el.innerHTML = `<div class="sf-info" style="margin-bottom:0.6rem;">${msg} ${showBtn} ${stopBtn}</div>`;
+    const show = document.getElementById('report-smallpass-show');
+    if (show) show.addEventListener('click', () => render());
+    const stop = document.getElementById('report-smallpass-stop');
+    if (stop) stop.addEventListener('click', () => SF.cancelSmallPass());
+  }
+  window.addEventListener('sf-smallpass', updateSmallPassBanner);
+
   function rerunWithUpdatedProfile() {
     const files = SF.state.batchFiles;
     const profs = batchProfileList().length
@@ -426,6 +449,7 @@ window.SF = window.SF || {};
     ) {
       return;
     }
+    SF.cancelSmallPass(); // la rielaborazione sostituisce i risultati: la seconda passata riparte dopo
     const progressEl = document.getElementById('report-rerun-progress');
     if (progressEl) progressEl.textContent = `Rielaborazione in corso… 0/${files.length}`;
     SF.runMultiProfileAsync(files, profs, config, (done, total) => {
@@ -434,6 +458,7 @@ window.SF = window.SF || {};
     }).then((results) => {
       SF.state.batchResults = results;
       st.falsePositiveLog = [];
+      SF.startSmallPass();
       render();
     });
   }
@@ -590,7 +615,8 @@ window.SF = window.SF || {};
         const profBadge = isMultiProfile() && d.profile
           ? `<div class="sf-thumb-prof" title="${SF.escapeHtml(profileLabel(d))}" style="background:${(profileEntry(d.profile) || {}).hex || '#888'};"></div>`
           : '';
-        thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>${flagBadge}${profBadge}`;
+        const smallBadge = d.small_pass ? '<div class="sf-thumb-small" title="Trovato dalla ricerca bersagli piccoli">🔎</div>' : '';
+        thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>${flagBadge}${profBadge}${smallBadge}`;
         thumb.addEventListener('click', () => {
           selectedIdx = idxInOriginal;
           thumbsEl.querySelectorAll('.sf-thumb').forEach((t) => t.classList.remove('selected'));
@@ -906,6 +932,7 @@ window.SF = window.SF || {};
     const totalDetections = results.reduce((s, r) => s + (r.detections ? r.detections.length : 0), 0);
 
     container.innerHTML = `
+      <div id="report-smallpass"></div>
       <p class="sf-caption">Profilo colore usato: <strong>${SF.escapeHtml(profileName)}</strong> — ${results.length} foto analizzate,
         ${totalDetections} target individuati.</p>
 
@@ -1075,6 +1102,8 @@ window.SF = window.SF || {};
       }
     });
     document.getElementById('report-browse-btn').addEventListener('click', () => openBrowse(0));
+    st.shownSmallAdded = (SF.state.smallPass && SF.state.smallPass.added) || 0;
+    updateSmallPassBanner();
 
     renderFiltered();
     renderReviewPanel();

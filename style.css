@@ -284,3 +284,6 @@ table.sf-table th, table.sf-table td { text-align: left; padding: 0.35rem 0.6rem
 /* pallino col colore del profilo sulle miniature del Report (solo se il lotto ha piu' profili) */
 .sf-thumb { position: relative; }
 .sf-thumb .sf-thumb-prof { position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.85); box-shadow: 0 0 2px rgba(0,0,0,0.6); }
+
+/* rilevamenti aggiunti dalla seconda passata (bersagli piccoli) */
+.sf-thumb .sf-thumb-small { position: absolute; left: 3px; bottom: 3px; font-size: 0.75rem; line-height: 1; background: rgba(0,0,0,0.55); border-radius: 4px; padding: 1px 3px; }

@@ -277,11 +277,13 @@ async function processImage(cv, file, profile, config) {
   cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const minAreaSmall = config.minAreaPxFullres * scale * scale;
+  // seconda passata (bersagli piccoli): scarta i blob già coperti dalla prima passata
+  const maxAreaSmall = config.maxAreaPxFullres ? config.maxAreaPxFullres * scale * scale : Infinity;
   const rawBlobs = []; // un blob per contorno, PRIMA della fusione dei vicini e del filtro geometrico
   for (let i = 0; i < contours.size(); i++) {
     const c = contours.get(i);
     const area = cv.contourArea(c);
-    if (area >= minAreaSmall) rawBlobs.push({ area, rect: cv.boundingRect(c) });
+    if (area >= minAreaSmall && area < maxAreaSmall) rawBlobs.push({ area, rect: cv.boundingRect(c) });
     c.delete();
   }
 

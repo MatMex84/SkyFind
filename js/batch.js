@@ -615,7 +615,7 @@ window.SF = window.SF || {};
    */
   SF.runDetectionPoolAsync = function (files, profile, config, onProgress) {
     return new Promise((resolve) => {
-      const nWorkers = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4, files.length));
+      const nWorkers = Math.max(1, Math.min(config.maxWorkers || 8, navigator.hardwareConcurrency || 4, files.length));
       const chunks = Array.from({ length: nWorkers }, () => []);
       files.forEach((f, i) => chunks[i % nWorkers].push(f));
 
@@ -732,7 +732,79 @@ window.SF = window.SF || {};
     return profiles.length > 1 ? mergeProfilePasses(passes) : passes[0];
   };
 
+  // ------------------------------------------------------------- seconda passata: bersagli piccoli (in background)
+  /** Dopo la prima passata (veloce) rielabora TUTTE le foto a risoluzione più alta e con area minima più bassa,
+   *  cercando solo blob più piccoli di quelli già coperti. Gira mentre l'utente guarda il Report: i nuovi
+   *  rilevamenti (`small_pass: true`) vengono AGGIUNTI a SF.state.batchResults, mai sostituiti, e solo se non si
+   *  sovrappongono a un rilevamento già presente (stesso controllo di mergeProfilePasses). Usa metà dei core
+   *  per non appesantire la visione dei risultati. Notifica con l'evento 'sf-smallpass'. */
+  const SMALL_PASS = { downscaleMaxDim: 4000, minAreaPxFullres: 80, maxAreaPxFullres: 400 };
+  let smallToken = 0;
+
+  function notifySmallPass() { window.dispatchEvent(new CustomEvent('sf-smallpass')); }
+
+  SF.cancelSmallPass = function () {
+    smallToken++;
+    const sp = SF.state.smallPass;
+    if (sp && sp.status === 'running') { sp.status = 'cancelled'; notifySmallPass(); }
+  };
+
+  SF.startSmallPass = function () {
+    const token = ++smallToken;
+    const files = SF.state.batchFiles, profs = SF.state.batchProfiles, base = SF.state.batchConfig;
+    const results = SF.state.batchResults;
+    if (!files || !files.length || !profs || !profs.length || !base || !results) { SF.state.smallPass = null; return; }
+    const config = {
+      ...base,
+      downscaleMaxDim: Math.max(base.downscaleMaxDim, SMALL_PASS.downscaleMaxDim),
+      minAreaPxFullres: SMALL_PASS.minAreaPxFullres,
+      maxAreaPxFullres: SMALL_PASS.maxAreaPxFullres,
+      maxWorkers: Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 4) / 2))),
+    };
+    const sp = (SF.state.smallPass = { status: 'running', done: 0, total: files.length * profs.length, added: 0 });
+    notifySmallPass();
+    const center = (b) => [b[0] + b[2] / 2, b[1] + b[3] / 2];
+    const inside = (b, x, y) => x >= b[0] && x <= b[0] + b[2] && y >= b[1] && y <= b[1] + b[3];
+
+    (async () => {
+      for (let pi = 0; pi < profs.length; pi++) {
+        const merged = new Set();
+        const mergeNew = (resSoFar) => {
+          if (token !== smallToken) return;
+          resSoFar.forEach((r2, i) => {
+            if (!r2 || merged.has(i)) return;
+            merged.add(i);
+            const r = results[i];
+            if (!r) return;
+            (r2.detections || []).forEach((d) => {
+              const [dx, dy] = center(d.bbox);
+              const dup = (r.detections || []).some((e) => {
+                const [ex, ey] = center(e.bbox);
+                return inside(e.bbox, dx, dy) || inside(d.bbox, ex, ey);
+              });
+              if (dup) return;
+              d.profile = profs[pi].name;
+              d.small_pass = true;
+              r.detections.push(d);
+              sp.added++;
+            });
+          });
+        };
+        await SF.runDetectionPoolAsync(files, profs[pi].profile, config, (done, total, soFar) => {
+          if (token !== smallToken) return;
+          sp.done = pi * files.length + done;
+          mergeNew(soFar);
+          notifySmallPass();
+        });
+        if (token !== smallToken) return;
+      }
+      sp.status = 'done';
+      notifySmallPass();
+    })().catch(() => { if (token === smallToken) { sp.status = 'error'; notifySmallPass(); } });
+  };
+
   function runBatch() {
+    SF.cancelSmallPass();
     const profileName = document.getElementById('batch-profile-select').value;
     const profile = SF.getProfile(profileName);
     if (!profile) return;
@@ -799,6 +871,7 @@ window.SF = window.SF || {};
       SF.state.batchProfiles = profs.map((x) => ({ name: x.name, profile: x.profile, hex: profileHexColor(cv, x.profile) }));
       SF.state.batchConfig = config;
       SF.state.batchExcluded = st.excludeColors.map((e) => ({ name: e.name, hex: e.hex }));
+      SF.startSmallPass(); // seconda passata in background: bersagli piccoli, a piena risoluzione
       SF.updateSidebarStatus();
       renderBatchSummary(elapsed);
       renderStartSection();
