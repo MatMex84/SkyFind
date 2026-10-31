@@ -14,7 +14,7 @@
   appena pubblicate. (opencv.js non è versionato: è una libreria esterna
   pesante che non modifichiamo mai, meglio lasciarla in cache a lungo).
 -->
-<script>window.APP_VERSION = '7';</script>
+<script>window.APP_VERSION = '8';</script>
 <script>document.write('<link rel="stylesheet" href="style.css?v=' + window.APP_VERSION + '" />');</script>
 </head>
 <body>
@@ -123,6 +123,7 @@
       'color_calib.js',
       'geo_utils.js',
       'exif_gps.js',
+      'scene_colors.js',
     ];
     files.forEach(function (f) {
       document.write('<scr' + 'ipt src="' + f + '?v=' + v + '"></scr' + 'ipt>');

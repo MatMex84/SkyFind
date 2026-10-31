@@ -113,6 +113,7 @@ window.SF = window.SF || {};
         st.files = filterImages(e.target.files);
         renderSourceStatus();
         detectCameraFromExif();
+        startSceneAnalysis();
       });
     } else {
       body.innerHTML = `
@@ -124,6 +125,7 @@ window.SF = window.SF || {};
         st.files = filterImages(e.target.files);
         renderSourceStatus();
         detectCameraFromExif();
+        startSceneAnalysis();
       });
     }
     renderSourceStatus();
@@ -268,6 +270,138 @@ window.SF = window.SF || {};
     renderCameraSummary();
   }
 
+  // ------------------------------------------------------------- profili: opzioni, swatch, refresh
+  function profileOptionsHtml(selected) {
+    const saved = SF.listProfiles();
+    if (!saved.length) return '<option value="">— nessun profilo salvato —</option>';
+    return saved
+      .map((p) => `<option value="${SF.escapeHtml(p.name)}"${p.name === selected ? ' selected' : ''}>${SF.escapeHtml(p.name)}</option>`)
+      .join('');
+  }
+
+  function updateProfileSwatch() {
+    const sel = document.getElementById('batch-profile-select');
+    const out = document.getElementById('batch-profile-swatch');
+    if (!sel || !out) return;
+    const p = SF.getProfile(sel.value);
+    if (!p) {
+      out.innerHTML = `<div class="sf-info">Nessun profilo selezionato: creane uno nel modulo <strong>🎨 Calibrazione Colore</strong>,
+        oppure — dopo aver scelto le foto qui sotto — usa uno dei <strong>colori suggeriti dalla scena</strong>.</div>`;
+      return;
+    }
+    SF.loadCv().then((cv) => {
+      if (sel.value !== p.name) return; // selezione cambiata nel frattempo
+      out.innerHTML =
+        `<div style="display:flex; align-items:center; gap:0.6rem;">
+          <div style="width:36px;height:36px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background-color:${profileHexColor(cv, p)};"></div>
+          <span class="sf-caption">Colore target del profilo <strong>${SF.escapeHtml(p.name)}</strong></span>
+        </div>`;
+    });
+  }
+
+  function refreshProfileSelect(selectName) {
+    const sel = document.getElementById('batch-profile-select');
+    if (!sel) return;
+    sel.innerHTML = profileOptionsHtml(selectName);
+    if (selectName) sel.value = selectName;
+    updateProfileSwatch();
+    renderStartSection();
+  }
+
+  // ------------------------------------------------------------- colori che spiccano nella scena (scene_colors.js)
+  let sceneToken = 0; // invalida un'analisi in corso quando cambia la sorgente foto
+
+  function startSceneAnalysis() {
+    const token = ++sceneToken;
+    if (!st.files.length || typeof SF.analyzeSceneColors !== 'function') {
+      st.scene = null;
+      renderSceneColors();
+      return;
+    }
+    st.scene = { status: 'running', done: 0, total: Math.min(st.files.length, 40) };
+    renderSceneColors();
+    SF.analyzeSceneColors(st.files, (done, total) => {
+      if (token !== sceneToken) return;
+      st.scene.done = done;
+      st.scene.total = total;
+      const el = document.getElementById('batch-scene-progress');
+      if (el) el.textContent = `${done}/${total}`;
+    })
+      .then((res) => {
+        if (token !== sceneToken) return;
+        st.scene = { status: 'done', ...res };
+        renderSceneColors();
+      })
+      .catch(() => {
+        if (token !== sceneToken) return;
+        st.scene = { status: 'error' };
+        renderSceneColors();
+      });
+  }
+
+  function renderSceneColors() {
+    const out = document.getElementById('batch-scene-colors');
+    if (!out) return;
+    const sc = st.scene;
+    if (!sc) { out.innerHTML = ''; return; }
+    if (sc.status === 'running') {
+      out.innerHTML = `<p class="sf-caption">🎨 Analisi dei colori della scena… <span id="batch-scene-progress">${sc.done}/${sc.total}</span></p>`;
+      return;
+    }
+    if (sc.status === 'error') {
+      out.innerHTML = '<p class="sf-caption">🎨 Analisi dei colori della scena non riuscita su queste foto (formato non leggibile dal browser).</p>';
+      return;
+    }
+    const note = `<p class="sf-caption">Analizzate ${sc.nAnalyzed} foto su ${sc.nTotal}. Solo colori <strong>vivaci</strong>: bianco, grigio, nero e tinte
+      spente non vengono suggeriti. Un target visibile solo in foto non campionate può non comparire; il colore è un
+      suggerimento da verificare a occhio (potrebbe essere un fiore, un veicolo, un telo…).</p>`;
+    if (!sc.candidates || !sc.candidates.length) {
+      out.innerHTML = `<p class="sf-caption">🎨 Nessun colore vivace e raro rilevato nella scena.</p>${note}`;
+      return;
+    }
+    const chips = sc.candidates
+      .map((c) => `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${c.hex};border:1px solid rgba(255,255,255,0.3);margin-left:3px;vertical-align:-1px;"></span>`)
+      .join('');
+    out.innerHTML = `
+      <details class="sf-expander" id="batch-scene-details">
+        <summary>🎨 Non sai che colore cercare? ${sc.candidates.length} colori spiccano nella scena${chips}</summary>
+        <div class="sf-scene-grid">
+          ${sc.candidates
+            .map(
+              (c, i) => `
+            <div class="sf-scene-card">
+              <img src="${c.exampleUrl}" alt="esempio ${SF.escapeHtml(c.name)}">
+              <div class="sf-scene-meta">
+                <div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${c.hex};border:1px solid rgba(255,255,255,0.3);vertical-align:-1px;"></span>
+                  <strong>${SF.escapeHtml(c.name)}</strong> <span class="sf-caption">${c.hex}</span></div>
+                <div class="sf-caption">${c.pctScene < 0.01 ? '&lt;0,01' : SF.formatNum(c.pctScene, 2)}% della scena · in ${c.presence}/${c.nPhotos} foto<br>esempio da ${SF.escapeHtml(c.photoName)}</div>
+                <button class="sf-btn" data-scene-idx="${i}">Usa questo colore</button>
+              </div>
+            </div>`
+            )
+            .join('')}
+        </div>
+        ${note}
+      </details>`;
+    out.querySelectorAll('button[data-scene-idx]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const c = sc.candidates[parseInt(btn.dataset.sceneIdx, 10)];
+        btn.disabled = true;
+        const cv = await SF.loadCv();
+        // Come la modalità Palette: colore esatto -> tolleranza al tetto massimo (nessuna variazione osservabile)
+        const profile = computeProfileFromSamples(cv, [SF.solidPatch(c.rgb)], { widen: true });
+        profile.name = `scena_${c.name.toLowerCase().replace(/[^a-z]+/g, '-')}_${c.hex.slice(1)}`;
+        profile.sample_source = 'scena';
+        profile.created_at = new Date().toISOString();
+        SF.saveProfile(profile);
+        SF.updateSidebarStatus();
+        refreshProfileSelect(profile.name);
+        btn.disabled = false;
+        btn.textContent = '✓ Selezionato';
+      });
+    });
+  }
+
   function renderStartSection() {
     const out = document.getElementById('batch-start-section');
     if (!out) return;
@@ -276,7 +410,9 @@ window.SF = window.SF || {};
       out.innerHTML = '';
       return;
     }
-    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${st.files.length} foto pronte</span><button class="sf-btn primary" id="batch-start-btn">▶️ Avvia elaborazione batch</button></div>`;
+    const selEl = document.getElementById('batch-profile-select');
+    const hasProfile = !!(selEl && SF.getProfile(selEl.value));
+    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${hasProfile ? st.files.length + ' foto pronte' : 'Scegli o crea un profilo colore (anche dai colori suggeriti) per avviare'}</span><button class="sf-btn primary" id="batch-start-btn" ${hasProfile ? '' : 'disabled'}>▶️ Avvia elaborazione batch</button></div>`;
     document.getElementById('batch-start-btn').addEventListener('click', runBatch);
   }
 
@@ -514,15 +650,7 @@ window.SF = window.SF || {};
   // ------------------------------------------------------------- build
   function buildOnce() {
     const container = document.getElementById('batch-content');
-    const saved = SF.listProfiles();
-    if (!saved.length) {
-      container.innerHTML =
-        '<div class="sf-warning">Nessun profilo colore salvato. Vai prima al modulo <strong>🎨 Calibrazione Colore</strong> per crearne uno.</div>';
-      st.built = false; // ririprova la costruzione completa quando un profilo esisterà
-      return;
-    }
-
-    const profileOptions = saved.map((p) => `<option value="${SF.escapeHtml(p.name)}">${SF.escapeHtml(p.name)}</option>`).join('');
+    const profileOptions = profileOptionsHtml();
     const droneFilter = typeof SF.isWideRgbColorCamera === 'function' ? SF.isWideRgbColorCamera : () => true;
     const georefDrones = DRONES.filter(droneFilter);
     if (!st.georef.droneId) st.georef.droneId = georefDrones.length ? georefDrones[0].id : DRONES[0].id;
@@ -535,6 +663,7 @@ window.SF = window.SF || {};
       <label class="sf-label">Profilo da usare per il rilevamento</label>
       <select id="batch-profile-select">${profileOptions}</select>
       <div id="batch-profile-swatch" style="margin-top:0.5rem;"></div>
+      <div id="batch-scene-colors" style="margin-top:0.6rem;"></div>
 
       <h2 class="sf-section">2. Sorgente immagini</h2>
       <div class="sf-radio-row" id="batch-source-radio">
@@ -658,31 +787,17 @@ window.SF = window.SF || {};
         st.sourceMode = e.target.value;
         st.files = [];
         renderSourceBody();
+        startSceneAnalysis();
       });
     });
     renderSourceBody();
 
-    SF.loadCv().then((cv) => {
-      const p = SF.getProfile(document.getElementById('batch-profile-select').value);
-      if (p) {
-        document.getElementById('batch-profile-swatch').innerHTML =
-          `<div style="display:flex; align-items:center; gap:0.6rem;">
-            <div style="width:36px;height:36px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background-color:${profileHexColor(cv, p)};"></div>
-            <span class="sf-caption">Colore target del profilo <strong>${SF.escapeHtml(p.name)}</strong></span>
-          </div>`;
-      }
+    updateProfileSwatch();
+    document.getElementById('batch-profile-select').addEventListener('change', () => {
+      updateProfileSwatch();
+      renderStartSection();
     });
-    document.getElementById('batch-profile-select').addEventListener('change', async () => {
-      const cv = await SF.loadCv();
-      const p = SF.getProfile(document.getElementById('batch-profile-select').value);
-      if (p) {
-        document.getElementById('batch-profile-swatch').innerHTML =
-          `<div style="display:flex; align-items:center; gap:0.6rem;">
-            <div style="width:36px;height:36px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background-color:${profileHexColor(cv, p)};"></div>
-            <span class="sf-caption">Colore target del profilo <strong>${SF.escapeHtml(p.name)}</strong></span>
-          </div>`;
-      }
-    });
+    renderSceneColors();
 
     st.built = true;
   }

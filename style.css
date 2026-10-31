@@ -274,3 +274,9 @@ table.sf-table th, table.sf-table td { text-align: left; padding: 0.35rem 0.6rem
 .sf-progress-inner { background: var(--accent); height: 100%; width: 0%; transition: width 0.15s ease; }
 
 .sf-hidden { display: none !important; }
+
+/* Suggerimenti "colori che spiccano nella scena" (Elaborazione Batch, scene_colors.js) */
+.sf-scene-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.8rem; margin: 0.8rem 0; }
+.sf-scene-card { display: flex; gap: 0.7rem; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem; }
+.sf-scene-card img { width: 72px; height: 72px; border-radius: 6px; object-fit: cover; flex-shrink: 0; image-rendering: pixelated; }
+.sf-scene-meta { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
