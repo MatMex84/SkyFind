@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SkyFind — Scheda tecnica</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
+<style>
+  :root { --bg:#fff; --fg:#1d232b; --muted:#5b6672; --card:#f4f6f9; --line:#dde2e8; --acc:#d9480f; --code:#eef1f5; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12161b; --fg:#e6e9ed; --muted:#98a3af; --card:#1b2129; --line:#2c3541; --acc:#ff8a4c; --code:#222a34; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:860px; margin:0 auto; padding:1.5rem 1.1rem 4rem; }
+  h1 { font-size:1.9rem; margin:.2rem 0 .2rem; }
+  h2 { font-size:1.35rem; margin:2.4rem 0 .6rem; padding-top:.4rem; border-top:1px solid var(--line); }
+  h3 { font-size:1.05rem; margin:1.4rem 0 .3rem; }
+  p { margin:.5rem 0; }
+  .sub { color:var(--muted); margin-bottom:1rem; }
+  a { color:var(--acc); }
+  code { background:var(--code); padding:.1rem .35rem; border-radius:4px; font-size:.9em; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.8rem 1rem; margin:.8rem 0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:.8rem; }
+  .ok, .no { border-left:4px solid; }
+  .ok { border-color:#2f9e44; } .no { border-color:#e8590c; }
+  ul { padding-left:1.2rem; } li { margin:.3rem 0; }
+  .tablewrap { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.93rem; }
+  th, td { text-align:left; border-bottom:1px solid var(--line); padding:.45rem .6rem; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  nav.toc { display:flex; flex-wrap:wrap; gap:.4rem .9rem; font-size:.9rem; margin:1rem 0 0; }
+  .back { display:inline-block; margin-bottom:.6rem; font-size:.9rem; }
+  pre { background:var(--code); padding:.8rem 1rem; border-radius:8px; overflow-x:auto; font-size:.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="../">← Torna a SkyFind</a>
+  <h1>🛰️ SkyFind — scheda tecnica</h1>
+  <p class="sub">Ricerca di indumenti e target per colore in foto aeree da drone, a supporto di operazioni SAR. Cosa fa, come è fatto, come lavora, cosa può e cosa non può fare.</p>
+  <nav class="toc">
+    <a href="#cosa">Cosa fa</a><a href="#flusso">Flusso</a><a href="#architettura">Architettura</a><a href="#pipeline">Pipeline di rilevamento</a>
+    <a href="#colore">Gestione del colore</a><a href="#geo">Georeferenziazione</a><a href="#report">Report</a><a href="#privacy">Privacy</a>
+    <a href="#limiti">Limiti</a><a href="#potenzialita">Potenzialità</a><a href="#req">Requisiti</a>
+  </nav>
+
+  <h2 id="cosa">Cosa fa</h2>
+  <p>SkyFind aiuta un operatore a passare in rassegna centinaia di foto scattate da un drone durante una ricerca, segnalando le zone dove compare un colore compatibile con quello dell'indumento cercato. Non “riconosce persone”: confronta colori. Il risultato è una <strong>lista ordinata di punti da controllare a occhio</strong>, con ritaglio, punteggio e, quando i metadati lo permettono, la posizione GPS stimata del punto.</p>
+  <div class="card">È un <strong>filtro di priorità</strong>, non un rilevatore automatico di dispersi. L'ultima parola spetta sempre a chi guarda la foto.</div>
+
+  <h2 id="flusso">Flusso di lavoro</h2>
+  <div class="grid">
+    <div class="card"><strong>🛩️ 1 · Mission Planner</strong><br>Quota consigliata per un GSD target di 0,8–1,5 cm/px, overlap frontale e laterale, velocità massima, consigli pratici (terrain following, gimbal, bilanciamento del bianco) per il drone/camera scelto.</div>
+    <div class="card"><strong>🎨 2 · Calibrazione Colore</strong><br>Contagocce su una foto campione (anche più punti) oppure palette con colori predefiniti (arancione e giallo-verde alta visibilità, rosso, blu, navy, denim, verde militare, bianco…). Produce un <em>profilo colore</em> salvabile.</div>
+    <div class="card"><strong>📷 3 · Elaborazione Batch</strong><br>Si sceglie la cartella di foto; SkyFind suggerisce i colori che spiccano nella scena, si scelgono uno o più profili ed eventuali colori da escludere, e parte l'elaborazione parallela.</div>
+    <div class="card"><strong>📋 4 · Report</strong><br>Foto con il target cerchiato, miniature ordinate per punteggio, lightbox con zoom, revisione dei falsi positivi, export HTML / CSV / KML / GeoJSON.</div>
+  </div>
+
+  <h2 id="architettura">Come è fatto</h2>
+  <p>Applicazione <strong>statica</strong> (HTML, JavaScript, CSS) senza build, senza framework e senza server: si apre da GitHub Pages o direttamente da <code>index.html</code>. Tutta l'elaborazione avviene nel browser dell'utente.</p>
+  <div class="tablewrap"><table>
+    <tr><th>File</th><th>Ruolo</th></tr>
+    <tr><td><code>index.html</code></td><td>Shell dell'app, navigazione tra i moduli (hash routing), versione dei file (<code>APP_VERSION</code>) per l'aggiornamento della cache.</td></tr>
+    <tr><td><code>js/app.js</code></td><td>Avvio, caricamento condiviso di OpenCV.js, profili colore in <code>localStorage</code>, stato missione.</td></tr>
+    <tr><td><code>js/mission_planner.js</code>, <code>calibrazione.js</code>, <code>batch.js</code>, <code>report.js</code></td><td>Logica dei quattro moduli.</td></tr>
+    <tr><td><code>detect_worker.js</code></td><td>Web Worker che rileva i target su ogni foto. Un worker per core.</td></tr>
+    <tr><td><code>color_calib.js</code></td><td>Profili colore, maschere HSV/LAB, normalizzazione gray-world, punteggio di confidenza. Condiviso tra pagina e worker.</td></tr>
+    <tr><td><code>scene_colors.js</code></td><td>Analisi della scena: colori che spiccano, campione di sfondo, tolleranza adattiva.</td></tr>
+    <tr><td><code>exif_gps.js</code></td><td>Lettura di EXIF/GPS/XMP DJI (quota relativa, yaw, pitch del gimbal) scritta a mano, senza dipendenze.</td></tr>
+    <tr><td><code>geo_utils.js</code></td><td>Proiezione di un pixel sul terreno (modello pin-hole con yaw e pitch).</td></tr>
+    <tr><td><code>drones_data.js</code></td><td>Sensori e focali di DJI Mavic 3E/3T, Matrice 4E/4T/30/30T, Mavic 4 Pro, Mini 4/5 Pro, Matrice 300/350/400 con H20/H30/P1, più inserimento manuale.</td></tr>
+    <tr><td><code>opencv.js</code></td><td>OpenCV compilato in WebAssembly (<code>@techstark/opencv-js</code>).</td></tr>
+  </table></div>
+
+  <h2 id="pipeline">Come lavora: la pipeline di rilevamento</h2>
+  <p>Per ogni foto, in un Web Worker:</p>
+  <ol>
+    <li><strong>Lettura metadati</strong>: coordinate GPS, quota relativa, orientamento e inclinazione del gimbal dai tag EXIF/XMP.</li>
+    <li><strong>Riduzione</strong> a 1600 px sul lato lungo (per velocità) e <strong>normalizzazione dell'illuminazione gray-world</strong>: i guadagni sono calcolati una volta sull'intera foto e riapplicati identici ai ritagli, così le foto con luce diversa diventano confrontabili.</li>
+    <li><strong>Maschera colore</strong> dei pixel che cadono nel profilo, in HSV (con gestione del giro dell'hue, importante per il rosso), in CIE-LAB, o in entrambi. Poi apertura morfologica per togliere il rumore.</li>
+    <li><strong>Esclusioni</strong>: i pixel dei colori da escludere vengono tolti dalla maschera.</li>
+    <li><strong>Contorni</strong> e scarto dei blob sotto l'area minima (400 px a piena risoluzione); <strong>fusione</strong> dei blob vicini (30 px) in un solo rilevamento.</li>
+    <li><strong>Filtro geometrico</strong> (se la quota è nota): scarta forme estreme e aree enormi, segnala con 🔍 aree molto piccole o forme allungate (possibile indumento parzialmente coperto).</li>
+    <li><strong>Punteggio</strong> su ciascun candidato, ritaglio dal file originale, posizione GPS del punto.</li>
+  </ol>
+  <p>Il lotto è diviso tra i worker (uno per core, fino a 8): centinaia di foto 4K si elaborano senza bloccare l'interfaccia.</p>
+  <h3>Il punteggio</h3>
+  <p>È <code>100·exp(−d²/2)</code>, con <em>d</em> distanza media in LAB tra i pixel rilevati e il colore del profilo, normalizzata sulla tolleranza. 100% è il colore esatto, circa 61% a 1 σ, circa 14% a 2 σ. È un <strong>punteggio di ordinamento</strong>, non una probabilità: un bersaglio all'ombra o bagnato può avere un punteggio basso ed essere comunque reale.</p>
+
+  <h2 id="colore">Gestione del colore</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Funzione</th><th>Cosa fa</th><th>Da sapere</th></tr>
+    <tr><td><strong>Colori della scena</strong></td><td>Analizza fino a 40 foto del lotto (miniature da 320 px, gray-world) e propone i colori vivaci e rari rispetto allo sfondo, con un ritaglio d'esempio. Un clic crea il profilo.</td><td>Solo colori vivaci: bianco, grigio, nero e tinte spente non vengono mai suggeriti. È un campione, non ogni foto.</td></tr>
+    <tr><td><strong>Più profili per lotto</strong></td><td>Si cercano più colori nello stesso lotto (es. arancione e blu). Rilevamenti che si sovrappongono diventano uno solo, con il profilo migliore e quello alternativo annotato.</td><td>Il tempo cresce linearmente col numero di profili. Il Report permette di filtrare per profilo.</td></tr>
+    <tr><td><strong>Colori da escludere</strong></td><td>Toglie dalla ricerca un colore che riempie la scena (papaveri, un tetto, un veicolo), a livello di pixel.</td><td>Vale per l'intero colore, non per un oggetto: un bersaglio simile sparisce con lui. Tolleranza prudente, non salvata tra sessioni; dichiarato in Report ed export.</td></tr>
+    <tr><td><strong>Tolleranza adattiva</strong></td><td>Misura quanto dello sfondo campionato rientra già nel profilo. Sopra l'1,5% avvisa e offre di restringere la tolleranza (fino a metà) per quell'elaborazione.</td><td>È una scelta manuale: restringere troppo può far perdere bersagli sfumati. Dichiarato nel Report.</td></tr>
+    <tr><td><strong>Seconda passata (piccoli)</strong></td><td>Dopo la prima passata, il Report è subito consultabile. In background tutte le foto sono rielaborate fino a 4000 px con area minima 80 px; i nuovi rilevamenti (🔎) si aggiungono senza duplicare.</td><td>Più rumore atteso; oltre i 4000 px la foto viene comunque ridotta; i risultati non sono salvati se si chiude la pagina.</td></tr>
+    <tr><td><strong>Feedback falsi positivi</strong></td><td>Segnando un rilevamento come falso, il profilo si restringe lontano da quel colore; “Ri-applica filtro” rielabora il lotto.</td><td>Sostituisce i risultati attuali.</td></tr>
+  </table></div>
+
+  <h2 id="geo">Georeferenziazione</h2>
+  <p>Con GPS, quota relativa (XMP DJI) e una camera selezionata, SkyFind proietta il centro del riquadro sul terreno con un modello pin-hole che usa yaw e pitch del gimbal (quindi anche scatti obliqui). In assenza della quota XMP si può impostare una quota di riserva. I punti vengono poi <strong>deduplicati tra foto</strong> per prossimità (raggio configurabile, 7 m di default), così lo stesso indumento ripreso in più scatti conta una volta.</p>
+  <p><strong>Ipotesi</strong>: terreno piatto e roll nullo. Su pendii o con quota imprecisa la posizione stimata può essere spostata di metri: va usata per orientare la verifica, non come coordinata definitiva.</p>
+
+  <h2 id="report">Report ed export</h2>
+  <ul>
+    <li><strong>Viste</strong>: per foto o per target unico; sfoglia a tutto schermo con le frecce; lightbox con zoom (click sul cerchietto per ingrandire, un altro click per tornare indietro).</li>
+    <li><strong>Revisione</strong>: soglia di punteggio a schermo, filtro per profilo, segnalazione falsi positivi con annulla.</li>
+    <li><strong>Export</strong>: HTML (autonomo, con i ritagli), CSV, KML (per Google Earth e simili), GeoJSON. L'export include tutti i rilevamenti, anche quelli nascosti dal filtro a schermo, salvo scelta esplicita. Profili, esclusioni e riduzioni di tolleranza usati sono dichiarati.</li>
+  </ul>
+
+  <h2 id="privacy">Privacy e operatività</h2>
+  <ul>
+    <li>Le foto vengono lette dal disco e <strong>non vengono mai caricate</strong> su alcun server. Nessun account, nessun tracciamento.</li>
+    <li>Dopo il primo caricamento della pagina (compreso il motore OpenCV) non serve connessione: adatto al lavoro sul campo.</li>
+    <li>Si salvano solo i profili colore, nel browser (<code>localStorage</code>); i risultati restano in memoria finché la pagina è aperta.</li>
+  </ul>
+
+  <h2 id="limiti">Limiti</h2>
+  <div class="card no">
+    <ul>
+      <li><strong>Solo colore</strong>: non riconosce forme, persone o oggetti. Vegetazione, tetti, veicoli, fiori o segnaletica dello stesso colore producono falsi positivi.</li>
+      <li><strong>Colori deboli</strong>: bianco (neve, cemento, nuvole) e verde militare (bosco) si confondono con lo sfondo; i preset sono segnalati. Il nero e i grigi hanno problemi simili.</li>
+      <li><strong>Luce e ombra</strong>: il gray-world aiuta ma non risolve ombre profonde, controluce, riflessi o tessuto bagnato; il punteggio può essere basso su bersagli reali.</li>
+      <li><strong>Bersagli molto piccoli o coperti</strong>: sotto circa 80 px (a piena risoluzione) o in gran parte nascosti dalla vegetazione, l'indumento può non emergere.</li>
+      <li><strong>Memoria e tempo</strong>: dipendono dal computer. Foto molto grandi (decine di megapixel) e molti profili rallentano; la seconda passata usa metà dei core.</li>
+      <li><strong>Posizione stimata</strong>: terreno piatto, nessun modello digitale del terreno, precisione legata a quota e orientamento nei metadati. Senza GPS o quota non c'è posizione.</li>
+      <li><strong>Formati</strong>: pensato per JPEG con metadati DJI; altri formati possono essere decodificati ma senza metadati utili.</li>
+      <li><strong>Nessuna persistenza dei risultati</strong>: chiudendo la pagina si perde l'elaborazione (esportare prima).</li>
+    </ul>
+  </div>
+
+  <h2 id="potenzialita">Potenzialità</h2>
+  <div class="card ok">
+    <ul>
+      <li>Passa in rassegna centinaia di foto 4K in minuti e riduce il lavoro dell'operatore a una lista breve e ordinata.</li>
+      <li>Funziona anche senza sapere il colore: i suggerimenti dalla scena trovano ciò che “spicca”.</li>
+      <li>Riservatezza totale e uso offline: nessun dato sensibile esce dal computer del Comando.</li>
+      <li>Georeferenziazione e deduplica producono una mappa di punti da verificare (KML/GeoJSON) utilizzabile subito in cartografia.</li>
+      <li>Nessuna installazione né licenze: basta un browser moderno; aggiornabile con un semplice push.</li>
+      <li>Estendibile: lo stesso schema (maschera → candidati → punteggio → verifica) accoglie nuovi criteri senza cambiare l'architettura.</li>
+    </ul>
+  </div>
+  <h3>Evoluzioni possibili</h3>
+  <ul>
+    <li>Criteri aggiuntivi oltre al colore (texture, contrasto locale, forma) per ridurre i falsi positivi.</li>
+    <li>Salvataggio della sessione (IndexedDB) per riprendere un lavoro dopo la chiusura.</li>
+    <li>Modello digitale del terreno per migliorare la posizione stimata.</li>
+    <li>Supporto a immagini termiche in affiancamento al visibile.</li>
+  </ul>
+
+  <h2 id="req">Requisiti</h2>
+  <p>Browser moderno con WebAssembly e Web Worker (Chrome, Edge, Firefox, Safari recenti). Consigliato un computer con 8 GB di RAM o più per lotti grandi. Funziona da <a href="https://matmex84.github.io/SkyFind/">matmex84.github.io/SkyFind</a> o aprendo <code>index.html</code> in locale; codice su <a href="https://github.com/MatMex84/SkyFind">GitHub</a>.</p>
+  <p class="sub">Strumento di supporto decisionale: non sostituisce l'esame visivo degli operatori né le procedure operative.</p>
+</div>
+</body>
+</html>
