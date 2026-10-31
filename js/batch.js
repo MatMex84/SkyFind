@@ -60,6 +60,7 @@ window.SF = window.SF || {};
   const st = {
     built: false,
     sourceMode: 'folder', // 'folder' | 'upload'
+    extraProfiles: new Set(), // nomi dei profili AGGIUNTIVI cercati nello stesso lotto (oltre a quello scelto nella select)
     files: [],
     detectionMode: 'hsv',
     requireGps: false,
@@ -299,12 +300,45 @@ window.SF = window.SF || {};
     });
   }
 
+  function renderExtraProfiles() {
+    const out = document.getElementById('batch-extra-profiles');
+    const sel = document.getElementById('batch-profile-select');
+    if (!out || !sel) return;
+    const others = SF.listProfiles().filter((p) => p.name !== sel.value);
+    // niente profili aggiuntivi che non esistono piu' o che coincidono col principale
+    Array.from(st.extraProfiles).forEach((n) => { if (!others.some((p) => p.name === n)) st.extraProfiles.delete(n); });
+    if (!others.length) { out.innerHTML = ''; return; }
+    const n = st.extraProfiles.size;
+    out.innerHTML = `
+      <details class="sf-expander"${n ? ' open' : ''}>
+        <summary>➕ Cerca più colori nello stesso lotto${n ? ` (${n} aggiuntiv${n === 1 ? 'o' : 'i'})` : ''}</summary>
+        <p class="sf-caption">Ogni profilo aggiuntivo fa rielaborare tutte le foto: i tempi si moltiplicano per il numero di
+          profili. Nel Report ogni rilevamento indica il profilo che lo ha trovato (se due colori trovano lo stesso oggetto,
+          resta un solo rilevamento).</p>
+        ${others
+          .map(
+            (p) => `<label class="sf-caption" style="display:flex; gap:0.5rem; align-items:center; margin:0.2rem 0; cursor:pointer;">
+              <input type="checkbox" data-extra="${SF.escapeHtml(p.name)}"${st.extraProfiles.has(p.name) ? ' checked' : ''}> ${SF.escapeHtml(p.name)}</label>`
+          )
+          .join('')}
+      </details>`;
+    out.querySelectorAll('input[data-extra]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) st.extraProfiles.add(cb.dataset.extra);
+        else st.extraProfiles.delete(cb.dataset.extra);
+        renderExtraProfiles();
+        renderStartSection();
+      });
+    });
+  }
+
   function refreshProfileSelect(selectName) {
     const sel = document.getElementById('batch-profile-select');
     if (!sel) return;
     sel.innerHTML = profileOptionsHtml(selectName);
     if (selectName) sel.value = selectName;
     updateProfileSwatch();
+    renderExtraProfiles();
     renderStartSection();
   }
 
@@ -375,7 +409,10 @@ window.SF = window.SF || {};
                 <div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${c.hex};border:1px solid rgba(255,255,255,0.3);vertical-align:-1px;"></span>
                   <strong>${SF.escapeHtml(c.name)}</strong> <span class="sf-caption">${c.hex}</span></div>
                 <div class="sf-caption">${c.pctScene < 0.01 ? '&lt;0,01' : SF.formatNum(c.pctScene, 2)}% della scena · in ${c.presence}/${c.nPhotos} foto<br>esempio da ${SF.escapeHtml(c.photoName)}</div>
-                <button class="sf-btn" data-scene-idx="${i}">Usa questo colore</button>
+                <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                  <button class="sf-btn" data-scene-idx="${i}">Usa questo colore</button>
+                  <button class="sf-btn" data-scene-add="${i}" title="Cerca anche questo colore, oltre al profilo già scelto">＋ Aggiungi</button>
+                </div>
               </div>
             </div>`
             )
@@ -383,21 +420,43 @@ window.SF = window.SF || {};
         </div>
         ${note}
       </details>`;
+    async function createProfileFromCandidate(c) {
+      const cv = await SF.loadCv();
+      // Come la modalità Palette: colore esatto -> tolleranza al tetto massimo (nessuna variazione osservabile)
+      const profile = computeProfileFromSamples(cv, [SF.solidPatch(c.rgb)], { widen: true });
+      profile.name = `scena_${c.name.toLowerCase().replace(/[^a-z]+/g, '-')}_${c.hex.slice(1)}`;
+      profile.sample_source = 'scena';
+      profile.created_at = new Date().toISOString();
+      SF.saveProfile(profile);
+      SF.updateSidebarStatus();
+      return profile;
+    }
     out.querySelectorAll('button[data-scene-idx]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const c = sc.candidates[parseInt(btn.dataset.sceneIdx, 10)];
         btn.disabled = true;
-        const cv = await SF.loadCv();
-        // Come la modalità Palette: colore esatto -> tolleranza al tetto massimo (nessuna variazione osservabile)
-        const profile = computeProfileFromSamples(cv, [SF.solidPatch(c.rgb)], { widen: true });
-        profile.name = `scena_${c.name.toLowerCase().replace(/[^a-z]+/g, '-')}_${c.hex.slice(1)}`;
-        profile.sample_source = 'scena';
-        profile.created_at = new Date().toISOString();
-        SF.saveProfile(profile);
-        SF.updateSidebarStatus();
+        const profile = await createProfileFromCandidate(c);
         refreshProfileSelect(profile.name);
         btn.disabled = false;
         btn.textContent = '✓ Selezionato';
+      });
+    });
+    out.querySelectorAll('button[data-scene-add]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const c = sc.candidates[parseInt(btn.dataset.sceneAdd, 10)];
+        btn.disabled = true;
+        const profile = await createProfileFromCandidate(c);
+        const sel = document.getElementById('batch-profile-select');
+        if (!sel.value || !SF.getProfile(sel.value)) refreshProfileSelect(profile.name); // nessun principale: diventa il principale
+        else {
+          st.extraProfiles.add(profile.name);
+          const keep = sel.value;
+          sel.innerHTML = profileOptionsHtml(keep);
+          sel.value = keep;
+          renderExtraProfiles();
+          renderStartSection();
+        }
+        btn.textContent = '✓ Aggiunto';
       });
     });
   }
@@ -412,7 +471,7 @@ window.SF = window.SF || {};
     }
     const selEl = document.getElementById('batch-profile-select');
     const hasProfile = !!(selEl && SF.getProfile(selEl.value));
-    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${hasProfile ? st.files.length + ' foto pronte' : 'Scegli o crea un profilo colore (anche dai colori suggeriti) per avviare'}</span><button class="sf-btn primary" id="batch-start-btn" ${hasProfile ? '' : 'disabled'}>▶️ Avvia elaborazione batch</button></div>`;
+    out.innerHTML = `<div class="sf-sticky-bar"><span id="batch-start-status" class="sf-caption">${hasProfile ? st.files.length + ' foto pronte' + (st.extraProfiles.size ? ' · ' + (1 + st.extraProfiles.size) + ' profili colore' : '') : 'Scegli o crea un profilo colore (anche dai colori suggeriti) per avviare'}</span><button class="sf-btn primary" id="batch-start-btn" ${hasProfile ? '' : 'disabled'}>▶️ Avvia elaborazione batch</button></div>`;
     document.getElementById('batch-start-btn').addEventListener('click', runBatch);
   }
 
@@ -492,10 +551,70 @@ window.SF = window.SF || {};
     });
   };
 
+  // ------------------------------------------------------------- più profili colore nello stesso lotto
+  /** Unisce i risultati di più passate (una per profilo) nella stessa struttura "un risultato per foto":
+   *  la prima passata fa da base, i rilevamenti delle altre vengono aggiunti. Due rilevamenti di profili
+   *  diversi che si sovrappongono (il centro di uno cade nel riquadro dell'altro) sono lo STESSO oggetto
+   *  visto da due colori vicini: ne resta uno solo, quello con confidenza maggiore, con l'altro profilo
+   *  annotato in `also_profiles` — mai due cerchi sullo stesso indumento. */
+  function mergeProfilePasses(passes) {
+    const base = passes[0];
+    const inside = (b, x, y) => x >= b[0] && x <= b[0] + b[2] && y >= b[1] && y <= b[1] + b[3];
+    const center = (b) => [b[0] + b[2] / 2, b[1] + b[3] / 2];
+    for (let pi = 1; pi < passes.length; pi++) {
+      passes[pi].forEach((other, i) => {
+        const r = base[i];
+        if (!r || !other) return;
+        ['geom_filter_rejected', 'geom_filter_flagged'].forEach((key) => {
+          if (r[key] && other[key]) Object.keys(other[key]).forEach((k) => { r[key][k] = (r[key][k] || 0) + other[key][k]; });
+        });
+        r.blobs_merged = (r.blobs_merged || 0) + (other.blobs_merged || 0);
+        (other.detections || []).forEach((d) => {
+          const [dx, dy] = center(d.bbox);
+          const hit = (r.detections || []).find((e) => {
+            const [ex, ey] = center(e.bbox);
+            return inside(e.bbox, dx, dy) || inside(d.bbox, ex, ey);
+          });
+          if (!hit) { r.detections.push(d); return; }
+          if (d.confidence > hit.confidence) {
+            const also = [...(hit.also_profiles || []), hit.profile];
+            const idx = r.detections.indexOf(hit);
+            d.also_profiles = also;
+            r.detections[idx] = d;
+          } else {
+            hit.also_profiles = [...(hit.also_profiles || []), d.profile];
+          }
+        });
+      });
+    }
+    return base;
+  }
+
+  /** Esegue il rilevamento una volta per profilo (ognuna con l'intero pool di worker) e unisce i risultati.
+   *  `profiles` = [{ name, profile }]. Ogni rilevamento porta `profile` (nome) per il Report. Con un solo
+   *  profilo equivale a SF.runDetectionPoolAsync. Il tempo cresce linearmente col numero di profili: ogni
+   *  passata rilegge e rielabora tutte le foto. `onProgress(done, total, resultsSoFar, profileIdx, nProfiles)`. */
+  SF.runMultiProfileAsync = async function (files, profiles, config, onProgress) {
+    const passes = [];
+    for (let pi = 0; pi < profiles.length; pi++) {
+      const res = await SF.runDetectionPoolAsync(files, profiles[pi].profile, config, (done, total, soFar) => {
+        if (onProgress) onProgress(pi * total + done, profiles.length * total, soFar, pi, profiles.length);
+      });
+      res.forEach((r) => (r && r.detections ? r.detections : []).forEach((d) => { d.profile = profiles[pi].name; }));
+      passes.push(res);
+    }
+    return profiles.length > 1 ? mergeProfilePasses(passes) : passes[0];
+  };
+
   function runBatch() {
     const profileName = document.getElementById('batch-profile-select').value;
     const profile = SF.getProfile(profileName);
     if (!profile) return;
+    const profs = [{ name: profileName, profile }];
+    st.extraProfiles.forEach((n) => {
+      const p = SF.getProfile(n);
+      if (p && n !== profileName) profs.push({ name: n, profile: p });
+    });
 
     st.running = true;
     document.getElementById('batch-start-section').innerHTML = '';
@@ -522,24 +641,32 @@ window.SF = window.SF || {};
     const files = st.files;
     const t0 = performance.now();
 
-    function onProgress(completedCount, total, resultsSoFar) {
+    function onProgress(completedCount, total, resultsSoFar, pi, k) {
       const pct = total ? (100 * completedCount) / total : 0;
       const inner = document.getElementById('batch-progress-inner');
       const text = document.getElementById('batch-progress-text');
       if (inner) inner.style.width = pct.toFixed(1) + '%';
       const nMatches = resultsSoFar.filter((r) => r && r.detections && r.detections.length).length;
-      if (text) text.textContent = `${completedCount}/${total} foto elaborate — ${nMatches} con rilevamenti`;
+      const perPass = Math.round(total / k);
+      const done = completedCount - pi * perPass;
+      if (text) {
+        text.textContent = k > 1
+          ? `Profilo ${pi + 1}/${k} (${profs[pi].name}): ${done}/${perPass} foto — ${nMatches} con rilevamenti`
+          : `${completedCount}/${total} foto elaborate — ${nMatches} con rilevamenti`;
+      }
     }
 
-    SF.runDetectionPoolAsync(files, profile, config, onProgress).then((results) => {
+    SF.runMultiProfileAsync(files, profs, config, onProgress).then(async (results) => {
       const elapsed = (performance.now() - t0) / 1000;
       st.running = false;
+      const cv = await SF.loadCv();
       SF.state.batchResults = results;
       SF.state.batchFiles = files;
-      SF.state.batchProfileName = profileName;
-      // Profilo e config effettivi di questa run (non solo il nome): servono al punto 6 nel Report
+      SF.state.batchProfileName = profs.map((x) => x.name).join(' + ');
+      // Profili e config effettivi di questa run (non solo i nomi): servono al punto 6 nel Report
       // per "Ri-applica filtro" — rielaborare lo stesso lotto senza riselezionare cartella/impostazioni.
-      SF.state.batchProfile = profile;
+      SF.state.batchProfile = profs[0].profile; // primo profilo (compatibilita' col codice a profilo singolo)
+      SF.state.batchProfiles = profs.map((x) => ({ name: x.name, profile: x.profile, hex: profileHexColor(cv, x.profile) }));
       SF.state.batchConfig = config;
       SF.updateSidebarStatus();
       renderBatchSummary(elapsed);
@@ -663,6 +790,7 @@ window.SF = window.SF || {};
       <label class="sf-label">Profilo da usare per il rilevamento</label>
       <select id="batch-profile-select">${profileOptions}</select>
       <div id="batch-profile-swatch" style="margin-top:0.5rem;"></div>
+      <div id="batch-extra-profiles" style="margin-top:0.6rem;"></div>
       <div id="batch-scene-colors" style="margin-top:0.6rem;"></div>
 
       <h2 class="sf-section">2. Sorgente immagini</h2>
@@ -795,8 +923,10 @@ window.SF = window.SF || {};
     updateProfileSwatch();
     document.getElementById('batch-profile-select').addEventListener('change', () => {
       updateProfileSwatch();
+      renderExtraProfiles();
       renderStartSection();
     });
+    renderExtraProfiles();
     renderSceneColors();
 
     st.built = true;

@@ -15,11 +15,27 @@ window.SF = window.SF || {};
     // punteggio sopra, che non cancella mai nulla) — va attivata consapevolmente prima di comparire.
     reviewMode: false,
     falsePositiveLog: [], // {result, det, idx} nell'ordine in cui sono stati rimossi, per "annulla ultima eliminazione"
-    profileDirty: false, // true se SF.state.batchProfile e' stato ristretto in memoria ma non ancora salvato
+    dirtyProfiles: new Set(), // nomi dei profili ristretti in memoria (falsi positivi) ma non ancora salvati
+    profileFilter: '', // '' = tutti; altrimenti nome profilo (solo vista a schermo, mai l'export)
   };
   const fileUrlCache = new WeakMap();
   let browseItems = []; // [{result, dets, file}], costruito all'apertura della modalita' Sfoglia
   let lightboxCurrent = null; // { det, result } del rilevamento aperto nella lightbox — per il pulsante falso positivo
+
+  // ------------------------------------------------------------- piu' profili colore nello stesso lotto
+  function batchProfileList() { return SF.state.batchProfiles || []; }
+  function isMultiProfile() { return batchProfileList().length > 1; }
+  function profileEntry(name) { return batchProfileList().find((p) => p.name === name) || null; }
+  /** Riga "🎨 Profilo: …" per un rilevamento (solo se il lotto è stato elaborato con più profili). */
+  function profileLine(det) {
+    if (!isMultiProfile() || !det.profile) return '';
+    const also = det.also_profiles && det.also_profiles.length ? ` (trovato anche da: ${det.also_profiles.map((n) => SF.escapeHtml(n)).join(', ')})` : '';
+    return `🎨 Profilo: <strong>${SF.escapeHtml(det.profile)}</strong>${also}`;
+  }
+  function profileLabel(det) {
+    if (!det.profile) return '';
+    return det.also_profiles && det.also_profiles.length ? `${det.profile} (+${det.also_profiles.join(', ')})` : det.profile;
+  }
 
   function cropUrl(det) {
     if (!st.cropUrls.has(det)) {
@@ -338,7 +354,7 @@ window.SF = window.SF || {};
     document.getElementById('sf-lightbox-caption').innerHTML =
       `${SF.escapeHtml(result.name)} — Confidenza: <strong>${SF.formatNum(det.confidence)}%</strong> · ` +
       `Area: ${SF.formatNum(det.fill_ratio)}% · bbox: x=${det.bbox[0]} y=${det.bbox[1]} w=${det.bbox[2]} h=${det.bbox[3]}<br>` +
-      targetGeoLine(det) + (shapeLine ? `<br>${shapeLine}` : '');
+      targetGeoLine(det) + (profileLine(det) ? `<br>${profileLine(det)}` : '') + (shapeLine ? `<br>${shapeLine}` : '');
     const fpBtn = document.getElementById('sf-lightbox-fp-btn');
     if (fpBtn) fpBtn.style.display = st.reviewMode ? 'inline-block' : 'none';
     box.classList.add('open');
@@ -358,13 +374,16 @@ window.SF = window.SF || {};
     if (idx === -1) return;
     result.detections.splice(idx, 1);
 
-    const profile = SF.state.batchProfile;
+    // Con più profili nello stesso lotto, il restringimento riguarda SOLO il profilo che ha trovato
+    // questo rilevamento (det.profile), non gli altri.
+    const entry = profileEntry(det.profile);
+    const profile = entry ? entry.profile : SF.state.batchProfile;
     if (profile && det.detected_mean_lab) {
       const before = profile.tolerance_lab.slice();
       const narrowed = narrowToleranceFromFalsePositive(profile, det.detected_mean_lab);
       if (narrowed.some((v, i) => v !== before[i])) {
         profile.tolerance_lab = narrowed;
-        st.profileDirty = true;
+        st.dirtyProfiles.add(entry ? entry.name : (SF.state.batchProfileName || ''));
       }
     }
     st.falsePositiveLog.push({ result, det, idx });
@@ -393,9 +412,11 @@ window.SF = window.SF || {};
    */
   function rerunWithUpdatedProfile() {
     const files = SF.state.batchFiles;
-    const profile = SF.state.batchProfile;
+    const profs = batchProfileList().length
+      ? batchProfileList().map((p) => ({ name: p.name, profile: p.profile }))
+      : SF.state.batchProfile ? [{ name: SF.state.batchProfileName || 'profilo', profile: SF.state.batchProfile }] : [];
     const config = SF.state.batchConfig;
-    if (!files || !files.length || !profile || !config) return;
+    if (!files || !files.length || !profs.length || !config) return;
     if (
       !confirm(
         'Rielaborare tutte le foto con il profilo colore aggiornato? Sostituirà i rilevamenti attuali ' +
@@ -407,13 +428,31 @@ window.SF = window.SF || {};
     }
     const progressEl = document.getElementById('report-rerun-progress');
     if (progressEl) progressEl.textContent = `Rielaborazione in corso… 0/${files.length}`;
-    SF.runDetectionPoolAsync(files, profile, config, (done, total) => {
+    SF.runMultiProfileAsync(files, profs, config, (done, total) => {
       const el = document.getElementById('report-rerun-progress');
       if (el) el.textContent = `Rielaborazione in corso… ${done}/${total}`;
     }).then((results) => {
       SF.state.batchResults = results;
       st.falsePositiveLog = [];
       render();
+    });
+  }
+
+  /** Selettore "Profilo" — compare solo se il lotto è stato elaborato con più profili colore. Restringe
+   *  solo la vista a schermo (come lo slider del punteggio), mai l'export. */
+  function renderProfileFilter() {
+    const el = document.getElementById('report-profile-filter');
+    if (!el) return;
+    if (!isMultiProfile()) { el.innerHTML = ''; st.profileFilter = ''; return; }
+    el.innerHTML = `
+      <label class="sf-label">Profilo colore da mostrare a schermo</label>
+      <select id="report-profile-select">
+        <option value="">Tutti i profili (${batchProfileList().length})</option>
+        ${batchProfileList().map((p) => `<option value="${SF.escapeHtml(p.name)}"${st.profileFilter === p.name ? ' selected' : ''}>${SF.escapeHtml(p.name)}</option>`).join('')}
+      </select>`;
+    document.getElementById('report-profile-select').addEventListener('change', (e) => {
+      st.profileFilter = e.target.value;
+      renderFiltered();
     });
   }
 
@@ -424,7 +463,7 @@ window.SF = window.SF || {};
       panel.innerHTML = '';
       return;
     }
-    const canRerun = !!(SF.state.batchFiles && SF.state.batchFiles.length && SF.state.batchProfile);
+    const canRerun = !!(SF.state.batchFiles && SF.state.batchFiles.length && (batchProfileList().length || SF.state.batchProfile));
     panel.innerHTML = `
       <div class="sf-info" style="margin-top:0.6rem;">
         ${
@@ -434,9 +473,9 @@ window.SF = window.SF || {};
             : '<div>Nessun rilevamento segnato come falso positivo finora in questa sessione.</div>'
         }
         ${
-          st.profileDirty
-            ? `<div style="margin-top:0.5rem;">🔧 Il profilo colore <strong>${SF.escapeHtml(SF.state.batchProfileName || '')}</strong>
-               è stato ristretto in memoria a partire dai falsi positivi segnalati, non ancora salvato.
+          st.dirtyProfiles.size
+            ? `<div style="margin-top:0.5rem;">🔧 ${st.dirtyProfiles.size > 1 ? 'I profili colore' : 'Il profilo colore'} <strong>${Array.from(st.dirtyProfiles).map((n) => SF.escapeHtml(n)).join(', ')}</strong>
+               ${st.dirtyProfiles.size > 1 ? 'sono stati ristretti' : 'è stato ristretto'} in memoria a partire dai falsi positivi segnalati, non ancora salvato.
                <button class="sf-btn" id="report-fp-save-profile" style="margin-left:0.4rem;">💾 Salva profilo aggiornato</button></div>`
             : ''
         }
@@ -458,8 +497,11 @@ window.SF = window.SF || {};
     const saveBtn = document.getElementById('report-fp-save-profile');
     if (saveBtn) {
       saveBtn.addEventListener('click', () => {
-        SF.saveProfile(SF.state.batchProfile);
-        st.profileDirty = false;
+        const toSave = batchProfileList().length
+          ? batchProfileList().filter((p) => st.dirtyProfiles.has(p.name)).map((p) => p.profile)
+          : [SF.state.batchProfile];
+        toSave.forEach((p) => p.name && SF.saveProfile(p));
+        st.dirtyProfiles.clear();
         SF.updateSidebarStatus();
         renderReviewPanel();
       });
@@ -545,7 +587,10 @@ window.SF = window.SF || {};
         const thumb = document.createElement('div');
         thumb.className = 'sf-thumb';
         const flagBadge = d.geom_warning ? `<div class="sf-thumb-flag" title="${SF.escapeHtml(d.geom_warning)}">🔍</div>` : '';
-        thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>${flagBadge}`;
+        const profBadge = isMultiProfile() && d.profile
+          ? `<div class="sf-thumb-prof" title="${SF.escapeHtml(profileLabel(d))}" style="background:${(profileEntry(d.profile) || {}).hex || '#888'};"></div>`
+          : '';
+        thumb.innerHTML = `<img src="${cropUrl(d)}"><div class="sf-thumb-conf">${SF.formatNum(d.confidence)}%</div>${flagBadge}${profBadge}`;
         thumb.addEventListener('click', () => {
           selectedIdx = idxInOriginal;
           thumbsEl.querySelectorAll('.sf-thumb').forEach((t) => t.classList.remove('selected'));
@@ -587,7 +632,7 @@ window.SF = window.SF || {};
                 : `<div><strong>Posizione target:</strong> non calcolabile${d.geo_note ? ' (' + SF.escapeHtml(d.geo_note) + ')' : ''}</div>`;
             const shapeWarningHtml = d.geom_warning ? `<div>🔍 ${SF.escapeHtml(d.geom_warning)}</div>` : '';
             return `<div class="det-card"><img src="data:image/jpeg;base64,${b64}" alt="target rilevato" />
-              <div class="det-meta"><div><strong>Confidenza:</strong> ${SF.formatNum(d.confidence)}%</div>
+              <div class="det-meta"><div><strong>Confidenza:</strong> ${SF.formatNum(d.confidence)}%</div>${d.profile ? `<div><strong>Profilo:</strong> ${SF.escapeHtml(profileLabel(d))}</div>` : ''}
               <div><strong>Copertura area:</strong> ${SF.formatNum(d.fill_ratio)}%</div>
               <div><strong>Bounding box:</strong> x=${x} y=${y} w=${w} h=${h}</div>${targetGpsHtml}${shapeWarningHtml}</div></div>`;
           })
@@ -669,7 +714,7 @@ window.SF = window.SF || {};
   function buildCsvReportByTarget(clusters, withoutGeo) {
     const rows = [[
       'target_id', 'target_lat', 'target_lon', 'n_rilevamenti', 'n_foto', 'foto',
-      'confidenza_max_%', 'confidenza_min_%', 'avvisi_forma',
+      'confidenza_max_%', 'confidenza_min_%', 'avvisi_forma', 'profili',
     ]];
     clusters.forEach((cl, i) => {
       const items = cl.items;
@@ -679,6 +724,7 @@ window.SF = window.SF || {};
       rows.push([
         i + 1, cl.lat, cl.lon, items.length, photoNames.length, photoNames.join('; '),
         Math.max(...confs), Math.min(...confs), warnings.join('; '),
+        [...new Set(items.map((it) => it.det.profile).filter(Boolean))].join('; '),
       ]);
     });
     if (withoutGeo.length) {
@@ -693,7 +739,7 @@ window.SF = window.SF || {};
     const rows = [[
       'foto', 'gps_lat_drone', 'gps_lon_drone', 'gps_altitude_m', 'data_ora',
       'target_lat', 'target_lon', 'target_geo_note',
-      'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h', 'confidenza_%', 'copertura_area_%', 'avviso_forma',
+      'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h', 'confidenza_%', 'copertura_area_%', 'avviso_forma', 'profilo',
     ]];
     results.forEach((r) => {
       (r.detections || []).forEach((d) => {
@@ -704,7 +750,7 @@ window.SF = window.SF || {};
           hasTargetGeo ? d.target_lat : '', hasTargetGeo ? d.target_lon : '',
           hasTargetGeo ? (d.geo_warning || '') : (d.geo_note || ''),
           d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3], d.confidence, d.fill_ratio,
-          d.geom_warning || '',
+          d.geom_warning || '', profileLabel(d),
         ]);
       });
     });
@@ -770,7 +816,7 @@ window.SF = window.SF || {};
       dets.forEach((d) => {
         if (d.target_lat === null || d.target_lat === undefined) { excluded++; return; }
         const desc =
-          `Foto: ${SF.escapeHtml(r.name)}<br>Confidenza: ${SF.formatNum(d.confidence)}%<br>` +
+          `Foto: ${SF.escapeHtml(r.name)}<br>Confidenza: ${SF.formatNum(d.confidence)}%<br>` + (d.profile ? `Profilo: ${SF.escapeHtml(profileLabel(d))}<br>` : '') +
           `Copertura area: ${SF.formatNum(d.fill_ratio)}%` + (d.geom_warning ? `<br>🔍 ${SF.escapeHtml(d.geom_warning)}` : '');
         placemarks.push(kmlPlacemark(`${r.name} — ${SF.formatNum(d.confidence)}%`, d.target_lat, d.target_lon, desc));
       });
@@ -808,6 +854,7 @@ window.SF = window.SF || {};
           properties: {
             foto: r.name,
             'confidenza_%': d.confidence,
+            profilo: profileLabel(d) || null,
             'copertura_area_%': d.fill_ratio,
             bbox_x: d.bbox[0], bbox_y: d.bbox[1], bbox_w: d.bbox[2], bbox_h: d.bbox[3],
             avviso_forma: d.geom_warning || null,
@@ -831,6 +878,7 @@ window.SF = window.SF || {};
           target_id: i + 1,
           n_rilevamenti: items.length,
           n_foto: photoNames.length,
+          profili: [...new Set(items.map((it) => it.det.profile).filter(Boolean))],
           foto: photoNames,
           'confidenza_max_%': Math.max(...confs),
           'confidenza_min_%': Math.min(...confs),
@@ -869,6 +917,8 @@ window.SF = window.SF || {};
         <input type="range" id="report-confidence-slider" min="0" max="100" step="1" value="${st.minConfidence}">
         <p class="sf-caption" id="report-confidence-value">${st.minConfidence}%</p>
       </div>
+
+      <div id="report-profile-filter"></div>
 
       <details class="sf-expander" style="margin: 0.6rem 0;">
         <summary>Come leggere il punteggio</summary>
@@ -943,6 +993,7 @@ window.SF = window.SF || {};
       </details>
     `;
 
+    renderProfileFilter();
     document.getElementById('report-confidence-slider').addEventListener('input', (e) => {
       st.minConfidence = parseInt(e.target.value, 10);
       document.getElementById('report-confidence-value').textContent = st.minConfidence + '%';
@@ -1028,10 +1079,11 @@ window.SF = window.SF || {};
   /** Elenco foto+detection con punteggio >= soglia, ordinato per punteggio massimo decrescente
    *  (punto 4: si parte sempre dai match più probabili). Soglia esplicita, non implicita da `st`,
    *  così la vista a schermo e l'export possono usarne una diversa — vedi getFiltered()/export. */
-  function getFilteredWithThreshold(threshold) {
+  function getFilteredWithThreshold(threshold, profileFilter) {
     const results = SF.state.batchResults;
+    const matchesProfile = (d) => !profileFilter || d.profile === profileFilter || (d.also_profiles || []).includes(profileFilter);
     return results
-      .map((r) => [r, (r.detections || []).filter((d) => d.confidence >= threshold)])
+      .map((r) => [r, (r.detections || []).filter((d) => d.confidence >= threshold && matchesProfile(d))])
       .filter(([, dets]) => dets.length)
       .sort((a, b) => Math.max(...b[1].map((d) => d.confidence)) - Math.max(...a[1].map((d) => d.confidence)));
   }
@@ -1039,7 +1091,7 @@ window.SF = window.SF || {};
   /** Vista a schermo (schede, Sfoglia, lightbox): rispetta la soglia scelta nelle impostazioni
    *  avanzate — vedi getExportThreshold() per la soglia usata invece nell'export. */
   function getFiltered() {
-    return getFilteredWithThreshold(st.minConfidence);
+    return getFilteredWithThreshold(st.minConfidence, st.profileFilter);
   }
 
   /** Soglia usata per l'EXPORT: per default sempre 0 (tutti i rilevamenti), indipendentemente da
