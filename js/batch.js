@@ -109,7 +109,7 @@ window.SF = window.SF || {};
       body.innerHTML = `
         <div class="sf-info">Per lotti di centinaia di foto 4K usa la <strong>cartella locale</strong>: le foto vengono
           lette direttamente dal disco, elaborate qui nel browser e non lasciano mai il tuo computer.</div>
-        <label class="sf-btn primary" for="batch-folder-input">📂 Sfoglia...</label>
+        <label class="sf-btn primary" for="batch-folder-input">${SF.icon('folder')} Sfoglia...</label>
         <input type="file" id="batch-folder-input" webkitdirectory directory multiple style="display:none;">
         <div id="batch-source-status" style="margin-top:0.6rem;"></div>
       `;
@@ -289,7 +289,7 @@ window.SF = window.SF || {};
     if (!sel || !out) return;
     const p = SF.getProfile(sel.value);
     if (!p) {
-      out.innerHTML = `<div class="sf-info">Nessun profilo selezionato: creane uno nel modulo <strong>🎨 Calibrazione Colore</strong>,
+      out.innerHTML = `<div class="sf-info">Nessun profilo selezionato: creane uno nel modulo <strong>${SF.icon('palette')} Calibrazione Colore</strong>,
         oppure — dopo aver scelto le foto qui sotto — usa uno dei <strong>colori suggeriti dalla scena</strong>.</div>`;
       return;
     }
@@ -368,7 +368,7 @@ window.SF = window.SF || {};
     const clashes = st.excludeColors.filter((e) => targets.some((t) => labDist(e.profile.mean_lab, t.mean_lab) < 30));
     out.innerHTML = `
       <details class="sf-expander"${n ? ' open' : ''}>
-        <summary>🚫 Colori da escludere${n ? ` (${n})` : ''}</summary>
+        <summary>${SF.icon('ban')} Colori da escludere${n ? ` (${n})` : ''}</summary>
         <p class="sf-caption">Utile quando qualcosa di <em>quasi dello stesso colore</em> del target riempie la scena
           (papaveri, un tetto, un veicolo): i pixel di questo colore vengono tolti dalla ricerca. Attenzione: non
           vale solo per quell'oggetto — qualunque cosa di quel colore sparisce, target compreso se gli somiglia.
@@ -386,7 +386,7 @@ window.SF = window.SF || {};
         ${clashes.length ? `<div class="sf-warning">⚠️ ${clashes.map((e) => SF.escapeHtml(e.name)).join(', ')} è molto vicino al colore che stai cercando: l'esclusione rischia di eliminare anche il target.</div>` : ''}
         <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
           <input type="color" id="batch-exclude-color" value="#c82828" style="width:60px; height:36px; padding:2px; cursor:pointer;">
-          <button class="sf-btn" id="batch-exclude-add">🚫 Escludi questo colore</button>
+          <button class="sf-btn" id="batch-exclude-add">${SF.icon('ban')} Escludi questo colore</button>
           <span class="sf-caption">oppure usa "🚫 Escludi" sui colori suggeriti dalla scena qui sotto.</span>
         </div>
       </details>`;
@@ -472,7 +472,7 @@ window.SF = window.SF || {};
       .join('');
     out.innerHTML = `
       <details class="sf-expander" id="batch-scene-details">
-        <summary>🎨 Non sai che colore cercare? ${sc.candidates.length === 1 ? '1 colore spicca' : sc.candidates.length + ' colori spiccano'} nella scena${chips}</summary>
+        <summary>${SF.icon('palette')} Non sai che colore cercare? ${sc.candidates.length === 1 ? '1 colore spicca' : sc.candidates.length + ' colori spiccano'} nella scena${chips}</summary>
         <div class="sf-scene-grid">
           ${sc.candidates
             .map(
@@ -485,8 +485,8 @@ window.SF = window.SF || {};
                 <div class="sf-caption">${c.pctScene < 0.01 ? '&lt;0,01' : SF.formatNum(c.pctScene, 2)}% della scena · in ${c.presence}/${c.nPhotos} foto<br>esempio da ${SF.escapeHtml(c.photoName)}</div>
                 <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
                   <button class="sf-btn" data-scene-idx="${i}">Usa questo colore</button>
-                  <button class="sf-btn" data-scene-add="${i}" title="Cerca anche questo colore, oltre al profilo già scelto">＋ Aggiungi</button>
-                  <button class="sf-btn" data-scene-excl="${i}" title="Togli questo colore dalla ricerca (es. papaveri, tetti)">🚫 Escludi</button>
+                  <button class="sf-btn" data-scene-add="${i}" title="Cerca anche questo colore, oltre al profilo già scelto">${SF.icon('plus')} Aggiungi</button>
+                  <button class="sf-btn" data-scene-excl="${i}" title="Togli questo colore dalla ricerca (es. papaveri, tetti)">${SF.icon('ban')} Escludi</button>
                 </div>
               </div>
             </div>`
@@ -973,8 +973,8 @@ window.SF = window.SF || {};
              </details>`
           : ''
       }
-      <div class="sf-info">Vai al modulo <strong>📋 Report</strong> per vedere i ritagli, le coordinate e generare il report finale.</div>
-      <button class="sf-btn primary" id="batch-goto-report">📋 Vai al Report</button>
+      <div class="sf-info">Vai al modulo <strong>${SF.icon('clipboard')} Report</strong> per vedere i ritagli, le coordinate e generare il report finale.</div>
+      <button class="sf-btn primary" id="batch-goto-report">${SF.icon('clipboard')} Vai al Report</button>
     `;
     document.getElementById('batch-goto-report').addEventListener('click', () => SF.navigate('report'));
   }

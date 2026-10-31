@@ -15,7 +15,7 @@
   appena pubblicate. (opencv.js non è versionato: è una libreria esterna
   pesante che non modifichiamo mai, meglio lasciarla in cache a lungo).
 -->
-<script>window.APP_VERSION = '16';</script>
+<script>window.APP_VERSION = '17';</script>
 <script>document.write('<link rel="stylesheet" href="style.css?v=' + window.APP_VERSION + '" />');</script>
 </head>
 <body>
@@ -23,20 +23,20 @@
 
   <aside id="sf-sidebar">
     <div class="sf-brand">
-      <span class="sf-brand-icon">🛰️</span>
+      <span class="sf-brand-icon" data-icon="radar"></span>
       <h2>SkyFind</h2>
     </div>
     <div class="sf-sidebar-tagline">Ricerca colore SAR da drone</div>
 
     <nav id="sf-nav">
-      <a class="sf-nav-link" id="nav-home" onclick="SF.navigate('home')"><span class="sf-nav-ico">🛰️</span><span class="sf-nav-lbl"><span class="sf-l">Home</span><span class="sf-s">Home</span></span></a>
-      <a class="sf-nav-link" id="nav-mission" onclick="SF.navigate('mission')"><span class="sf-nav-ico">🛩️</span><span class="sf-nav-lbl"><span class="sf-l">Mission Planner</span><span class="sf-s">Planner</span></span></a>
-      <a class="sf-nav-link" id="nav-calibrazione" onclick="SF.navigate('calibrazione')"><span class="sf-nav-ico">🎨</span><span class="sf-nav-lbl"><span class="sf-l">Calibrazione Colore</span><span class="sf-s">Colore</span></span></a>
-      <a class="sf-nav-link" id="nav-batch" onclick="SF.navigate('batch')"><span class="sf-nav-ico">📷</span><span class="sf-nav-lbl"><span class="sf-l">Elaborazione Batch</span><span class="sf-s">Batch</span></span></a>
-      <a class="sf-nav-link" id="nav-report" onclick="SF.navigate('report')"><span class="sf-nav-ico">📋</span><span class="sf-nav-lbl"><span class="sf-l">Report</span><span class="sf-s">Report</span></span></a>
+      <a class="sf-nav-link" id="nav-home" onclick="SF.navigate('home')"><span class="sf-nav-ico" data-icon="home"></span><span class="sf-nav-lbl"><span class="sf-l">Home</span><span class="sf-s">Home</span></span></a>
+      <a class="sf-nav-link" id="nav-mission" onclick="SF.navigate('mission')"><span class="sf-nav-ico" data-icon="plane"></span><span class="sf-nav-lbl"><span class="sf-l">Mission Planner</span><span class="sf-s">Planner</span></span></a>
+      <a class="sf-nav-link" id="nav-calibrazione" onclick="SF.navigate('calibrazione')"><span class="sf-nav-ico" data-icon="palette"></span><span class="sf-nav-lbl"><span class="sf-l">Calibrazione Colore</span><span class="sf-s">Colore</span></span></a>
+      <a class="sf-nav-link" id="nav-batch" onclick="SF.navigate('batch')"><span class="sf-nav-ico" data-icon="image"></span><span class="sf-nav-lbl"><span class="sf-l">Elaborazione Batch</span><span class="sf-s">Batch</span></span></a>
+      <a class="sf-nav-link" id="nav-report" onclick="SF.navigate('report')"><span class="sf-nav-ico" data-icon="clipboard"></span><span class="sf-nav-lbl"><span class="sf-l">Report</span><span class="sf-s">Report</span></span></a>
     </nav>
 
-    <a class="sf-info-link" href="info/" target="_blank" rel="noopener">ℹ️ Come funziona</a>
+    <a class="sf-info-link" href="info/" target="_blank" rel="noopener"><span data-icon="info"></span> Come funziona</a>
 
     <div class="sf-status-block">
       <strong>Stato missione</strong>
@@ -47,7 +47,7 @@
   <main id="sf-main">
 
     <section id="page-home" class="sf-page">
-      <div class="sf-header"><div class="sf-icon">🛰️</div><h1>SkyFind</h1></div>
+      <div class="sf-header"><div class="sf-icon" data-icon="radar"></div><h1>SkyFind</h1></div>
       <div class="sf-subtitle">
         Ricerca colore da immagini drone (SAR) — individuazione rapida di indumenti o target tramite filtraggio
         cromatico su immagini aeree, dalla pianificazione al report finale.
@@ -60,19 +60,19 @@
 
       <div class="sf-home-grid">
         <div class="sf-card sf-home-card">
-          <h3>🛩️ 1 · Mission Planner</h3>
+          <h3><span data-icon="plane"></span> 1 · Mission Planner</h3>
           <p class="sf-caption">Consigli su quota di volo e overlap in base al drone in uso.</p>
         </div>
         <div class="sf-card sf-home-card">
-          <h3>🎨 2 · Calibrazione Colore</h3>
+          <h3><span data-icon="palette"></span> 2 · Calibrazione Colore</h3>
           <p class="sf-caption">Estrazione del profilo colore dal campione target.</p>
         </div>
         <div class="sf-card sf-home-card">
-          <h3>📷 3 · Elaborazione Batch</h3>
+          <h3><span data-icon="image"></span> 3 · Elaborazione Batch</h3>
           <p class="sf-caption">Applica il profilo alle foto di missione (ottimizzato per centinaia di foto 4K) ed estrae i target.</p>
         </div>
         <div class="sf-card sf-home-card">
-          <h3>📋 4 · Report</h3>
+          <h3><span data-icon="clipboard"></span> 4 · Report</h3>
           <p class="sf-caption">Ritagli dei target rilevati, coordinate GPS e confidenza cromatica, esportabile in HTML/CSV.</p>
         </div>
       </div>
@@ -81,12 +81,12 @@
         Tutti e 4 i moduli sono operativi. Segui l'ordine sopra per una missione completa. Tutta l'elaborazione avviene
         localmente nel browser: le foto non vengono mai caricate su un server.
       </div>
-      <p class="sf-caption" style="margin-top:1rem;"><a href="info/" target="_blank" rel="noopener">ℹ️ Come funziona: scheda tecnica, limiti e potenzialità</a></p>
+      <p class="sf-caption" style="margin-top:1rem;"><a href="info/" target="_blank" rel="noopener"><span data-icon="info"></span> Come funziona: scheda tecnica, limiti e potenzialità</a></p>
     </section>
 
     <section id="page-mission" class="sf-page">
       <div class="sf-module-pill">MODULO 1 DI 4</div>
-      <div class="sf-header"><div class="sf-icon">🛩️</div><h1>Mission Planner Assistant</h1></div>
+      <div class="sf-header"><div class="sf-icon" data-icon="plane"></div><h1>Mission Planner Assistant</h1></div>
       <div class="sf-subtitle">Seleziona il drone: quota di volo e overlap consigliati sono automatici.</div>
       <div class="sf-divider"></div>
       <div id="mp-content"></div>
@@ -94,7 +94,7 @@
 
     <section id="page-calibrazione" class="sf-page">
       <div class="sf-module-pill">MODULO 2 DI 4</div>
-      <div class="sf-header"><div class="sf-icon">🎨</div><h1>Calibrazione Colore Campione</h1></div>
+      <div class="sf-header"><div class="sf-icon" data-icon="palette"></div><h1>Calibrazione Colore Campione</h1></div>
       <div class="sf-subtitle">Scegli il colore del target col contagocce su una foto oppure da una palette. Il resto è automatico.</div>
       <div class="sf-divider"></div>
       <div id="calib-content"></div>
@@ -102,7 +102,7 @@
 
     <section id="page-batch" class="sf-page">
       <div class="sf-module-pill">MODULO 3 DI 4</div>
-      <div class="sf-header"><div class="sf-icon">📷</div><h1>Elaborazione Batch</h1></div>
+      <div class="sf-header"><div class="sf-icon" data-icon="image"></div><h1>Elaborazione Batch</h1></div>
       <div class="sf-subtitle">Applica il profilo colore calibrato a un lotto di foto di missione ed estrae i target rilevati.</div>
       <div class="sf-divider"></div>
       <div id="batch-content"></div>
@@ -110,7 +110,7 @@
 
     <section id="page-report" class="sf-page">
       <div class="sf-module-pill">MODULO 4 DI 4</div>
-      <div class="sf-header"><div class="sf-icon">📋</div><h1>Report Rilevamenti</h1></div>
+      <div class="sf-header"><div class="sf-icon" data-icon="clipboard"></div><h1>Report Rilevamenti</h1></div>
       <div class="sf-divider"></div>
       <div id="report-content"></div>
     </section>
@@ -126,6 +126,7 @@
     var v = window.APP_VERSION;
     var files = [
       'drones_data.js',
+      'icons.js',
       'color_calib.js',
       'geo_utils.js',
       'exif_gps.js',

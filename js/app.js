@@ -144,6 +144,7 @@ window.SF = window.SF || {};
 
   window.addEventListener('hashchange', onHashChange);
   document.addEventListener('DOMContentLoaded', () => {
+    if (SF.hydrateIcons) SF.hydrateIcons();
     onHashChange();
   });
 })();

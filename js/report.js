@@ -507,7 +507,7 @@ window.SF = window.SF || {};
         ${
           canRerun
             ? `<div style="margin-top:0.6rem;">
-                 <button class="sf-btn" id="report-fp-rerun">🔁 Ri-applica filtro su tutte le foto</button>
+                 <button class="sf-btn" id="report-fp-rerun">${SF.icon('refresh')} Ri-applica filtro su tutte le foto</button>
                  <span class="sf-caption" id="report-rerun-progress"></span>
                  <p class="sf-caption">Rielabora tutte le foto già caricate con il profilo aggiornato, senza dover
                    riselezionare la cartella — utile dopo aver segnato uno o più falsi positivi, per vedere
@@ -554,7 +554,7 @@ window.SF = window.SF || {};
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:0.6rem; flex-shrink:0;">
-          <button class="sf-btn" id="browse-open-${result._idx}" title="Apri in modalità Sfoglia">🖼️ Sfoglia da qui</button>
+          <button class="sf-btn" id="browse-open-${result._idx}" title="Apri in modalità Sfoglia">${SF.icon('image')} Sfoglia da qui</button>
           <span class="sf-photo-card-chevron">▶</span>
         </div>
       </div>
@@ -920,7 +920,7 @@ window.SF = window.SF || {};
     const container = document.getElementById('report-content');
     const results = SF.state.batchResults;
     if (!results || !results.length) {
-      container.innerHTML = '<div class="sf-info">Nessun risultato disponibile. Esegui prima il modulo <strong>📷 Elaborazione Batch</strong>.</div>';
+      container.innerHTML = `<div class="sf-info">Nessun risultato disponibile. Esegui prima il modulo <strong>${SF.icon('image')} Elaborazione Batch</strong>.</div>`;
       return;
     }
     results.forEach((r, i) => (r._idx = i));
@@ -937,7 +937,7 @@ window.SF = window.SF || {};
         ${SF.plural(totalDetections, 'target individuato', 'target individuati')}.</p>
 
       <div style="margin: 0.6rem 0 1rem;">
-        <button class="sf-btn primary" id="report-browse-btn">🖼️ Sfoglia foto in sequenza</button>
+        <button class="sf-btn primary" id="report-browse-btn">${SF.icon('image')} Sfoglia foto in sequenza</button>
         <span class="sf-caption" style="margin-left:0.6rem;">Vista a schermo intero, foto per foto, con frecce ← →.</span>
       </div>
 
@@ -993,8 +993,8 @@ window.SF = window.SF || {};
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
 
       <div class="sf-radio-row" id="report-view-radio">
-        <label><input type="radio" name="report-view" value="photo" ${st.viewMode === 'photo' ? 'checked' : ''}> 📷 Per foto</label>
-        <label><input type="radio" name="report-view" value="target" ${st.viewMode === 'target' ? 'checked' : ''}> 🎯 Target unici (deduplica GPS)</label>
+        <label><input type="radio" name="report-view" value="photo" ${st.viewMode === 'photo' ? 'checked' : ''}> ${SF.icon('image')} Per foto</label>
+        <label><input type="radio" name="report-view" value="target" ${st.viewMode === 'target' ? 'checked' : ''}> ${SF.icon('target')} Target unici (deduplica GPS)</label>
       </div>
       <div id="report-dedup-controls" style="display:${st.viewMode === 'target' ? 'block' : 'none'}; margin: 0.6rem 0;">
         <label class="sf-label">Raggio di deduplica (metri)</label>
@@ -1008,14 +1008,14 @@ window.SF = window.SF || {};
       <div id="report-cards"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
       <h2 class="sf-section">Esporta report</h2>
-      <button class="sf-btn primary" id="report-export-html">⬇️ Scarica report HTML</button>
+      <button class="sf-btn primary" id="report-export-html">${SF.icon('download')} Scarica report HTML</button>
       <p class="sf-caption" id="report-export-note"></p>
       <details class="sf-expander" style="margin-top:0.6rem;">
         <summary>Altri formati (CSV, KML, GeoJSON)</summary>
         <div style="display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:0.6rem;">
-          <button class="sf-btn" id="report-export-csv">⬇️ Scarica CSV rilevamenti</button>
-          <button class="sf-btn" id="report-export-kml">⬇️ Scarica KML</button>
-          <button class="sf-btn" id="report-export-geojson">⬇️ Scarica GeoJSON</button>
+          <button class="sf-btn" id="report-export-csv">${SF.icon('download')} Scarica CSV rilevamenti</button>
+          <button class="sf-btn" id="report-export-kml">${SF.icon('download')} Scarica KML</button>
+          <button class="sf-btn" id="report-export-geojson">${SF.icon('download')} Scarica GeoJSON</button>
         </div>
         <p class="sf-caption">KML e GeoJSON (per Google Earth, QGIS e altri software di mappe) includono solo i
           rilevamenti con posizione GPS del target calcolabile: un formato geografico può rappresentare solo punti
@@ -1301,7 +1301,7 @@ window.SF = window.SF || {};
         <button class="sf-btn" id="sf-lightbox-zoom-in" title="Avvicina (più dettaglio) — tasto +">+</button>
       </div>
       <div class="sf-lightbox-caption" id="sf-lightbox-caption"></div>
-      <button class="sf-btn" id="sf-lightbox-fp-btn" style="display:none; margin-top:0.6rem;">🚫 Segna come falso positivo</button>
+      <button class="sf-btn" id="sf-lightbox-fp-btn" style="display:none; margin-top:0.6rem;">${SF.icon('ban')} Segna come falso positivo</button>
     `;
     document.body.appendChild(box);
     box.addEventListener('click', (e) => {

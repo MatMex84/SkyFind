@@ -617,8 +617,8 @@ window.SF = window.SF || {};
     const container = document.getElementById('calib-content');
     container.innerHTML = `
       <div class="sf-radio-row" id="calib-mode-radio">
-        <label><input type="radio" name="calib-mode" value="photo" checked> 📷 Contagocce su una foto</label>
-        <label><input type="radio" name="calib-mode" value="palette"> 🎨 Palette colore</label>
+        <label><input type="radio" name="calib-mode" value="photo" checked> ${SF.icon('image')} Contagocce su una foto</label>
+        <label><input type="radio" name="calib-mode" value="palette"> ${SF.icon('palette')} Palette colore</label>
       </div>
       <div id="calib-mode-body"></div>
       <hr style="border-color:var(--border); margin: 1.4rem 0;">
