@@ -93,6 +93,12 @@ window.SF = window.SF || {};
       ['Profilo colore calibrato', profileReady],
       ['Elaborazione batch eseguita', batchReady],
     ];
+    const strip = document.getElementById('home-status');
+    if (strip) {
+      strip.innerHTML = rows
+        .map(([label, done]) => `<span class="sf-chip ${done ? 'done' : ''}">${done ? '✓' : '○'} ${SF.escapeHtml(label)}</span>`)
+        .join('');
+    }
     const container = document.getElementById('sf-status-rows');
     if (!container) return;
     container.innerHTML = rows
@@ -105,6 +111,8 @@ window.SF = window.SF || {};
       .join('');
   }
   SF.updateSidebarStatus = updateSidebarStatus;
+  /** Singolare/plurale: SF.plural(1,'target','target') → '1 target'. Forme con la stessa parola per 1 e N non servono: si passa solo `one` e `many`. */
+  SF.plural = function (n, one, many) { return n + ' ' + (n === 1 ? one : many); };
 
   function showPage(name) {
     if (!pages.includes(name)) name = 'home';

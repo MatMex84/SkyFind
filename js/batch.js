@@ -472,7 +472,7 @@ window.SF = window.SF || {};
       .join('');
     out.innerHTML = `
       <details class="sf-expander" id="batch-scene-details">
-        <summary>🎨 Non sai che colore cercare? ${sc.candidates.length} colori spiccano nella scena${chips}</summary>
+        <summary>🎨 Non sai che colore cercare? ${sc.candidates.length === 1 ? '1 colore spicca' : sc.candidates.length + ' colori spiccano'} nella scena${chips}</summary>
         <div class="sf-scene-grid">
           ${sc.candidates
             .map(

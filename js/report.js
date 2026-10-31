@@ -286,7 +286,7 @@ window.SF = window.SF || {};
         ? `📍 <a href="${mapsLink(item.result.gps_lat, item.result.gps_lon)}" target="_blank" rel="noopener">${item.result.gps_lat.toFixed(6)}, ${item.result.gps_lon.toFixed(6)}</a>`
         : '📍 GPS non disponibile';
     document.getElementById('sf-browse-caption').innerHTML =
-      `<strong>${SF.escapeHtml(item.result.name)}</strong> — ${item.dets.length} rilevamento/i (max ${SF.formatNum(bestConf)}%) · ` +
+      `<strong>${SF.escapeHtml(item.result.name)}</strong> — ${SF.plural(item.dets.length, 'rilevamento', 'rilevamenti')} (max ${SF.formatNum(bestConf)}%) · ` +
       `${gpsTxt} · 🕒 ${SF.escapeHtml(item.result.datetime_original || 'n/d')}`;
 
     if (item.file) {
@@ -547,7 +547,7 @@ window.SF = window.SF || {};
     card.innerHTML = `
       <div class="sf-photo-card-head">
         <div>
-          <div class="sf-photo-card-title">${SF.escapeHtml(result.name)} — ${dets.length} rilevamento/i</div>
+          <div class="sf-photo-card-title">${SF.escapeHtml(result.name)} — ${SF.plural(dets.length, 'rilevamento', 'rilevamenti')}</div>
           <div class="sf-photo-card-meta">
             <span>${gpsTxt}</span>
             <span>🕒 ${SF.escapeHtml(result.datetime_original || 'n/d')}</span>
@@ -685,7 +685,7 @@ window.SF = window.SF || {};
     return `<!doctype html><html lang="it"><head><meta charset="utf-8" /><title>Report SkyFind</title><style>${css}</style></head>
       <body><h1>🛰️ Report rilevamenti — SkyFind</h1>
       <div class="summary">Profilo colore: <strong>${SF.escapeHtml(profileName)}</strong> — ${SF.state.batchResults.length} foto analizzate,
-      ${filtered.length} con rilevamenti, ${totalDetections} target individuati (soglia confidenza ≥ ${minConfidence.toFixed(0)}%).</div>
+      ${filtered.length} con rilevamenti, ${SF.plural(totalDetections, 'target individuato', 'target individuati')} (soglia confidenza ≥ ${minConfidence.toFixed(0)}%).</div>
       ${body}</body></html>`;
   }
 
@@ -707,7 +707,7 @@ window.SF = window.SF || {};
           .join('');
         return `<section class="photo-card"><h3>🎯 Target ${i + 1}</h3>
           <div class="photo-meta"><span>📍 <a href="${mapsLink(cl.lat, cl.lon)}" target="_blank" rel="noopener">${cl.lat.toFixed(6)}, ${cl.lon.toFixed(6)}</a> (centroide)</span>
-          <span>${items.length} rilevamento/i in ${photoNames.length} foto: ${photoNames.map((n) => SF.escapeHtml(n)).join(', ')}</span></div>
+          <span>${SF.plural(items.length, 'rilevamento', 'rilevamenti')} in ${SF.plural(photoNames.length, 'foto', 'foto')}: ${photoNames.map((n) => SF.escapeHtml(n)).join(', ')}</span></div>
           <div class="det-grid">${detCards}</div></section>`;
       })
       .join('');
@@ -934,7 +934,7 @@ window.SF = window.SF || {};
     container.innerHTML = `
       <div id="report-smallpass"></div>
       <p class="sf-caption">Profilo colore usato: <strong>${SF.escapeHtml(profileName)}</strong> — ${results.length} foto analizzate,
-        ${totalDetections} target individuati.</p>
+        ${SF.plural(totalDetections, 'target individuato', 'target individuati')}.</p>
 
       <div style="margin: 0.6rem 0 1rem;">
         <button class="sf-btn primary" id="report-browse-btn">🖼️ Sfoglia foto in sequenza</button>
