@@ -287,3 +287,7 @@ table.sf-table th, table.sf-table td { text-align: left; padding: 0.35rem 0.6rem
 
 /* rilevamenti aggiunti dalla seconda passata (bersagli piccoli) */
 .sf-thumb .sf-thumb-small { position: absolute; left: 3px; bottom: 3px; font-size: 0.75rem; line-height: 1; background: rgba(0,0,0,0.55); border-radius: 4px; padding: 1px 3px; }
+
+/* link alla scheda tecnica: in basso nella sidebar, sopra "Stato missione", staccato dal menu dei moduli */
+.sf-info-link { display: block; margin: 0.8rem 0 0.6rem; padding: 0.35rem 0.6rem; font-size: 0.85rem; color: var(--muted); opacity: 0.8; text-decoration: none; border-top: 1px solid rgba(128,128,128,0.25); }
+.sf-info-link:hover { opacity: 1; text-decoration: underline; }
