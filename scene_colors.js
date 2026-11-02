@@ -6,7 +6,7 @@
  * esempio ritagliato dalla foto in cui compare di più: un clic lo trasforma in profilo colore.
  *
  * Funzionamento (tutto client-side, thread principale, nessun upload):
- *  1. campiona fino a MAX_PHOTOS foto distribuite uniformemente nel lotto;
+ *  1. campiona il 25% delle foto (min 40, max 150) distribuite uniformemente nel lotto;
  *  2. ogni foto viene ridotta a THUMB_W px di larghezza (decodifica già ridimensionata) e normalizzata
  *     con lo stesso gray-world usato dal rilevamento (così i colori suggeriti stanno nello stesso
  *     spazio colore "canonicalizzato" dei profili e dei match in detect_worker.js);
@@ -28,7 +28,9 @@ window.SF = window.SF || {};
 (function () {
   'use strict';
 
-  const MAX_PHOTOS = 40;
+  const MIN_PHOTOS = 40;   // lotti piccoli: si analizzano tutte (fino a 40)
+  const MAX_PHOTOS = 150;  // tetto (memoria/tempo): ~70 MB di miniature
+  const SAMPLE_FRACTION = 0.25; // su lotti grandi si campiona il 25% delle foto
   const THUMB_W = 320;
   const HUE_BINS = 24; // 15° ciascuno
   const SAT_BINS = 2; // 0.55-0.80 e 0.80-1.00
@@ -78,9 +80,14 @@ window.SF = window.SF || {};
     return hb * SAT_BINS + (s < SAT_SPLIT ? 0 : 1);
   }
 
+  /** Quante foto analizzare per un lotto di n: 25% del lotto, tra 40 e 150 (mai più di n). */
+  SF.sceneSampleSize = function (n) {
+    return Math.min(n, Math.max(MIN_PHOTOS, Math.min(MAX_PHOTOS, Math.ceil(n * SAMPLE_FRACTION))));
+  };
+
   function pickSample(files) {
     const n = files.length;
-    const m = Math.min(n, MAX_PHOTOS);
+    const m = SF.sceneSampleSize(n);
     if (m === n) return files.slice();
     const out = [];
     for (let i = 0; i < m; i++) out.push(files[Math.floor((i * (n - 1)) / (m - 1))]);

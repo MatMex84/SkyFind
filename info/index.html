@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0e1117">
 <title>SkyFind — Scheda tecnica</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230e1117'/%3E%3Cg fill='none' stroke='%236EA8FE' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7.5'/%3E%3Ccircle cx='12' cy='12' r='3.6'/%3E%3Cpath d='M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='1' fill='%23F5A623'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="../style.css?v=18">
+<link rel="stylesheet" href="../style.css?v=19">
 <style>
   #sf-main h2{margin:2.2rem 0 .6rem;padding-top:.9rem;border-top:1px solid var(--border);font-size:1.3rem}
   #sf-main h3{margin:1.2rem 0 .3rem}
@@ -96,7 +96,7 @@
   <h2 id="colore">Gestione del colore</h2>
   <div class="tablewrap"><table>
     <tr><th>Funzione</th><th>Cosa fa</th><th>Da sapere</th></tr>
-    <tr><td><strong>Colori della scena</strong></td><td>Analizza fino a 40 foto del lotto (miniature da 320 px, gray-world) e propone i colori vivaci e rari rispetto allo sfondo, con un ritaglio d'esempio. Un clic crea il profilo.</td><td>Solo colori vivaci: bianco, grigio, nero e tinte spente non vengono mai suggeriti. È un campione, non ogni foto.</td></tr>
+    <tr><td><strong>Colori della scena</strong></td><td>Analizza il 25% delle foto del lotto (minimo 40, massimo 150) (miniature da 320 px, gray-world) e propone i colori vivaci e rari rispetto allo sfondo, con un ritaglio d'esempio. Un clic crea il profilo.</td><td>Solo colori vivaci: bianco, grigio, nero e tinte spente non vengono mai suggeriti. È un campione, non ogni foto.</td></tr>
     <tr><td><strong>Più profili per lotto</strong></td><td>Si cercano più colori nello stesso lotto (es. arancione e blu). Rilevamenti che si sovrappongono diventano uno solo, con il profilo migliore e quello alternativo annotato.</td><td>Il tempo cresce linearmente col numero di profili. Il Report permette di filtrare per profilo.</td></tr>
     <tr><td><strong>Colori da escludere</strong></td><td>Toglie dalla ricerca un colore che riempie la scena (papaveri, un tetto, un veicolo), a livello di pixel.</td><td>Vale per l'intero colore, non per un oggetto: un bersaglio simile sparisce con lui. Tolleranza prudente, non salvata tra sessioni; dichiarato in Report ed export.</td></tr>
     <tr><td><strong>Tolleranza adattiva</strong></td><td>Misura quanto dello sfondo campionato rientra già nel profilo. Sopra l'1,5% avvisa e offre di restringere la tolleranza (fino a metà) per quell'elaborazione.</td><td>È una scelta manuale: restringere troppo può far perdere bersagli sfumati. Dichiarato nel Report.</td></tr>
@@ -162,7 +162,7 @@
     <div class="sf-pagenav"><a class="sf-btn primary" href="../#home"><span data-icon="arrow-left"></span> Torna a SkyFind</a></div>
   </main>
 </div>
-<script src="../icons.js?v=18"></script>
+<script src="../icons.js?v=19"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){SF.hydrateIcons();});</script>
 </body>
 </html>

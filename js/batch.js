@@ -425,7 +425,7 @@ window.SF = window.SF || {};
       renderSceneColors();
       return;
     }
-    st.scene = { status: 'running', done: 0, total: Math.min(st.files.length, 40) };
+    st.scene = { status: 'running', done: 0, total: SF.sceneSampleSize(st.files.length) };
     renderSceneColors();
     SF.analyzeSceneColors(st.files, (done, total) => {
       if (token !== sceneToken) return;

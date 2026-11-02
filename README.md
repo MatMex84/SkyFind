@@ -18,7 +18,7 @@ Nessuna installazione: apri `index.html` col doppio click (o servilo con un qual
 
 ## Funzioni sul colore (ultime aggiunte)
 
-1. **Colori che spiccano nella scena** — analizza un campione delle foto (fino a 40) e propone i colori vivaci e rari rispetto allo sfondo, con un ritaglio d'esempio; un clic crea il profilo (`scene_colors.js`).
+1. **Colori che spiccano nella scena** — analizza un campione delle foto (25% del lotto, da 40 a 150) e propone i colori vivaci e rari rispetto allo sfondo, con un ritaglio d'esempio; un clic crea il profilo (`scene_colors.js`).
 2. **Più profili colore nello stesso lotto** — una passata per profilo, risultati uniti senza duplicati; filtro per profilo nel Report.
 3. **Colori da escludere** — tolti dalla maschera a livello di pixel (papaveri, tetti, veicoli); dichiarati in Report ed export. Solo per la sessione.
 4. **Tolleranza adattiva alla scena** — avviso se lo sfondo rientra già nel profilo (> 1,5%) e pulsante per restringere la tolleranza per quell'elaborazione.
