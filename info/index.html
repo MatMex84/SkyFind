@@ -2,42 +2,49 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1117">
 <title>SkyFind — Scheda tecnica</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230e1117'/%3E%3Cg fill='none' stroke='%236EA8FE' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7.5'/%3E%3Ccircle cx='12' cy='12' r='3.6'/%3E%3Cpath d='M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='1' fill='%23F5A623'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="../style.css?v=18">
 <style>
-  :root { --bg:#fff; --fg:#1d232b; --muted:#5b6672; --card:#f4f6f9; --line:#dde2e8; --acc:#d9480f; --code:#eef1f5; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#12161b; --fg:#e6e9ed; --muted:#98a3af; --card:#1b2129; --line:#2c3541; --acc:#ff8a4c; --code:#222a34; } }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  .wrap { max-width:860px; margin:0 auto; padding:1.5rem 1.1rem 4rem; }
-  h1 { font-size:1.9rem; margin:.2rem 0 .2rem; }
-  h2 { font-size:1.35rem; margin:2.4rem 0 .6rem; padding-top:.4rem; border-top:1px solid var(--line); }
-  h3 { font-size:1.05rem; margin:1.4rem 0 .3rem; }
-  p { margin:.5rem 0; }
-  .sub { color:var(--muted); margin-bottom:1rem; }
-  a { color:var(--acc); }
-  code { background:var(--code); padding:.1rem .35rem; border-radius:4px; font-size:.9em; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.8rem 1rem; margin:.8rem 0; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:.8rem; }
-  .ok, .no { border-left:4px solid; }
-  .ok { border-color:#2f9e44; } .no { border-color:#e8590c; }
-  ul { padding-left:1.2rem; } li { margin:.3rem 0; }
-  .tablewrap { overflow-x:auto; }
-  table { border-collapse:collapse; width:100%; font-size:.93rem; }
-  th, td { text-align:left; border-bottom:1px solid var(--line); padding:.45rem .6rem; vertical-align:top; }
-  th { color:var(--muted); font-weight:600; }
-  nav.toc { display:flex; flex-wrap:wrap; gap:.4rem .9rem; font-size:.9rem; margin:1rem 0 0; }
-  .back { display:inline-block; margin-bottom:.6rem; font-size:.9rem; }
-  pre { background:var(--code); padding:.8rem 1rem; border-radius:8px; overflow-x:auto; font-size:.85rem; }
+  #sf-main h2{margin:2.2rem 0 .6rem;padding-top:.9rem;border-top:1px solid var(--border);font-size:1.3rem}
+  #sf-main h3{margin:1.2rem 0 .3rem}
+  #sf-main code{background:rgba(255,255,255,.07);padding:.1rem .35rem;border-radius:4px;font-size:.9em}
+  #sf-main a{color:var(--accent)}
+  #sf-main ul{padding-left:1.2rem} #sf-main li{margin:.3rem 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem}
+  .grid .sf-card strong{display:flex;align-items:center;gap:.4rem;margin-bottom:.2rem}
+  .sf-card.ok{border-left:3px solid var(--good)} .sf-card.no{border-left:3px solid var(--accent-warm)}
+  .tablewrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:.92rem}
+  th,td{text-align:left;border-bottom:1px solid var(--border);padding:.45rem .6rem;vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  nav.toc{display:flex;flex-wrap:wrap;gap:.4rem 1rem;font-size:.9rem;margin:0 0 .5rem}
+  nav.toc a{text-decoration:none} nav.toc a:hover{text-decoration:underline}
+  pre{background:rgba(255,255,255,.05);padding:.8rem 1rem;border-radius:8px;overflow-x:auto;font-size:.85rem}
+  .sf-pagenav{display:flex;margin-top:2rem}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <a class="back" href="../">← Torna a SkyFind</a>
-  <h1>🛰️ SkyFind — scheda tecnica</h1>
-  <p class="sub">Ricerca di indumenti e target per colore in foto aeree da drone, a supporto di operazioni SAR. Cosa fa, come è fatto, come lavora, cosa può e cosa non può fare.</p>
-  <nav class="toc">
+<div id="sf-layout">
+  <aside id="sf-sidebar">
+    <div class="sf-brand"><span class="sf-brand-icon" data-icon="radar"></span><h2>SkyFind</h2></div>
+    <div class="sf-sidebar-tagline">Ricerca colore SAR da drone</div>
+    <nav id="sf-nav">
+      <a class="sf-nav-link" href="../#home"><span class="sf-nav-ico" data-icon="home"></span><span class="sf-nav-lbl"><span class="sf-l">Home</span><span class="sf-s">Home</span></span></a>
+      <a class="sf-nav-link" href="../#mission"><span class="sf-nav-ico" data-icon="plane"></span><span class="sf-nav-lbl"><span class="sf-l">Mission Planner</span><span class="sf-s">Planner</span></span></a>
+      <a class="sf-nav-link" href="../#calibrazione"><span class="sf-nav-ico" data-icon="palette"></span><span class="sf-nav-lbl"><span class="sf-l">Calibrazione Colore</span><span class="sf-s">Colore</span></span></a>
+      <a class="sf-nav-link" href="../#batch"><span class="sf-nav-ico" data-icon="image"></span><span class="sf-nav-lbl"><span class="sf-l">Elaborazione Batch</span><span class="sf-s">Batch</span></span></a>
+      <a class="sf-nav-link" href="../#report"><span class="sf-nav-ico" data-icon="clipboard"></span><span class="sf-nav-lbl"><span class="sf-l">Report</span><span class="sf-s">Report</span></span></a>
+      <a class="sf-nav-link active" href="./" aria-current="page"><span class="sf-nav-ico" data-icon="info"></span><span class="sf-nav-lbl"><span class="sf-l">Come funziona</span><span class="sf-s">Info</span></span></a>
+    </nav>
+  </aside>
+  <main id="sf-main">
+    <div class="sf-header"><div class="sf-icon" data-icon="info"></div><h1>Come funziona</h1></div>
+    <div class="sf-subtitle">Scheda tecnica: ricerca di indumenti e target per colore in foto aeree da drone, a supporto di operazioni SAR. Cosa fa, come è fatto, come lavora, cosa può e cosa non può fare.</div>
+    <div class="sf-divider"></div>
+    <nav class="toc">
     <a href="#cosa">Cosa fa</a><a href="#flusso">Flusso</a><a href="#architettura">Architettura</a><a href="#pipeline">Pipeline di rilevamento</a>
     <a href="#colore">Gestione del colore</a><a href="#geo">Georeferenziazione</a><a href="#report">Report</a><a href="#privacy">Privacy</a>
     <a href="#limiti">Limiti</a><a href="#potenzialita">Potenzialità</a><a href="#req">Requisiti</a>
@@ -45,14 +52,14 @@
 
   <h2 id="cosa">Cosa fa</h2>
   <p>SkyFind aiuta un operatore a passare in rassegna centinaia di foto scattate da un drone durante una ricerca, segnalando le zone dove compare un colore compatibile con quello dell'indumento cercato. Non “riconosce persone”: confronta colori. Il risultato è una <strong>lista ordinata di punti da controllare a occhio</strong>, con ritaglio, punteggio e, quando i metadati lo permettono, la posizione GPS stimata del punto.</p>
-  <div class="card">È un <strong>filtro di priorità</strong>, non un rilevatore automatico di dispersi. L'ultima parola spetta sempre a chi guarda la foto.</div>
+  <div class="sf-card">È un <strong>filtro di priorità</strong>, non un rilevatore automatico di dispersi. L'ultima parola spetta sempre a chi guarda la foto.</div>
 
   <h2 id="flusso">Flusso di lavoro</h2>
   <div class="grid">
-    <div class="card"><strong>🛩️ 1 · Mission Planner</strong><br>Quota consigliata per un GSD target di 0,8–1,5 cm/px, overlap frontale e laterale, velocità massima, consigli pratici (terrain following, gimbal, bilanciamento del bianco) per il drone/camera scelto.</div>
-    <div class="card"><strong>🎨 2 · Calibrazione Colore</strong><br>Contagocce su una foto campione (anche più punti) oppure palette con colori predefiniti (arancione e giallo-verde alta visibilità, rosso, blu, navy, denim, verde militare, bianco…). Produce un <em>profilo colore</em> salvabile.</div>
-    <div class="card"><strong>📷 3 · Elaborazione Batch</strong><br>Si sceglie la cartella di foto; SkyFind suggerisce i colori che spiccano nella scena, si scelgono uno o più profili ed eventuali colori da escludere, e parte l'elaborazione parallela.</div>
-    <div class="card"><strong>📋 4 · Report</strong><br>Foto con il target cerchiato, miniature ordinate per punteggio, lightbox con zoom, revisione dei falsi positivi, export HTML / CSV / KML / GeoJSON.</div>
+    <div class="sf-card"><strong><span data-icon="plane"></span> 1 · Mission Planner</strong><br>Quota consigliata per un GSD target di 0,8–1,5 cm/px, overlap frontale e laterale, velocità massima, consigli pratici (terrain following, gimbal, bilanciamento del bianco) per il drone/camera scelto.</div>
+    <div class="sf-card"><strong><span data-icon="palette"></span> 2 · Calibrazione Colore</strong><br>Contagocce su una foto campione (anche più punti) oppure palette con colori predefiniti (arancione e giallo-verde alta visibilità, rosso, blu, navy, denim, verde militare, bianco…). Produce un <em>profilo colore</em> salvabile.</div>
+    <div class="sf-card"><strong><span data-icon="image"></span> 3 · Elaborazione Batch</strong><br>Si sceglie la cartella di foto; SkyFind suggerisce i colori che spiccano nella scena, si scelgono uno o più profili ed eventuali colori da escludere, e parte l'elaborazione parallela.</div>
+    <div class="sf-card"><strong><span data-icon="clipboard"></span> 4 · Report</strong><br>Foto con il target cerchiato, miniature ordinate per punteggio, lightbox con zoom, revisione dei falsi positivi, export HTML / CSV / KML / GeoJSON.</div>
   </div>
 
   <h2 id="architettura">Come è fatto</h2>
@@ -79,7 +86,7 @@
     <li><strong>Maschera colore</strong> dei pixel che cadono nel profilo, in HSV (con gestione del giro dell'hue, importante per il rosso), in CIE-LAB, o in entrambi. Poi apertura morfologica per togliere il rumore.</li>
     <li><strong>Esclusioni</strong>: i pixel dei colori da escludere vengono tolti dalla maschera.</li>
     <li><strong>Contorni</strong> e scarto dei blob sotto l'area minima (400 px a piena risoluzione); <strong>fusione</strong> dei blob vicini (30 px) in un solo rilevamento.</li>
-    <li><strong>Filtro geometrico</strong> (se la quota è nota): scarta forme estreme e aree enormi, segnala con 🔍 aree molto piccole o forme allungate (possibile indumento parzialmente coperto).</li>
+    <li><strong>Filtro geometrico</strong> (se la quota è nota): scarta forme estreme e aree enormi, segnala con l'icona lente aree molto piccole o forme allungate (possibile indumento parzialmente coperto).</li>
     <li><strong>Punteggio</strong> su ciascun candidato, ritaglio dal file originale, posizione GPS del punto.</li>
   </ol>
   <p>Il lotto è diviso tra i worker (uno per core, fino a 8): centinaia di foto 4K si elaborano senza bloccare l'interfaccia.</p>
@@ -93,7 +100,7 @@
     <tr><td><strong>Più profili per lotto</strong></td><td>Si cercano più colori nello stesso lotto (es. arancione e blu). Rilevamenti che si sovrappongono diventano uno solo, con il profilo migliore e quello alternativo annotato.</td><td>Il tempo cresce linearmente col numero di profili. Il Report permette di filtrare per profilo.</td></tr>
     <tr><td><strong>Colori da escludere</strong></td><td>Toglie dalla ricerca un colore che riempie la scena (papaveri, un tetto, un veicolo), a livello di pixel.</td><td>Vale per l'intero colore, non per un oggetto: un bersaglio simile sparisce con lui. Tolleranza prudente, non salvata tra sessioni; dichiarato in Report ed export.</td></tr>
     <tr><td><strong>Tolleranza adattiva</strong></td><td>Misura quanto dello sfondo campionato rientra già nel profilo. Sopra l'1,5% avvisa e offre di restringere la tolleranza (fino a metà) per quell'elaborazione.</td><td>È una scelta manuale: restringere troppo può far perdere bersagli sfumati. Dichiarato nel Report.</td></tr>
-    <tr><td><strong>Seconda passata (piccoli)</strong></td><td>Dopo la prima passata, il Report è subito consultabile. In background tutte le foto sono rielaborate fino a 4000 px con area minima 80 px; i nuovi rilevamenti (🔎) si aggiungono senza duplicare.</td><td>Più rumore atteso; oltre i 4000 px la foto viene comunque ridotta; i risultati non sono salvati se si chiude la pagina.</td></tr>
+    <tr><td><strong>Seconda passata (piccoli)</strong></td><td>Dopo la prima passata, il Report è subito consultabile. In background tutte le foto sono rielaborate fino a 4000 px con area minima 80 px; i nuovi rilevamenti (marcati «piccolo») si aggiungono senza duplicare.</td><td>Più rumore atteso; oltre i 4000 px la foto viene comunque ridotta; i risultati non sono salvati se si chiude la pagina.</td></tr>
     <tr><td><strong>Feedback falsi positivi</strong></td><td>Segnando un rilevamento come falso, il profilo si restringe lontano da quel colore; “Ri-applica filtro” rielabora il lotto.</td><td>Sostituisce i risultati attuali.</td></tr>
   </table></div>
 
@@ -116,7 +123,7 @@
   </ul>
 
   <h2 id="limiti">Limiti</h2>
-  <div class="card no">
+  <div class="sf-card no">
     <ul>
       <li><strong>Solo colore</strong>: non riconosce forme, persone o oggetti. Vegetazione, tetti, veicoli, fiori o segnaletica dello stesso colore producono falsi positivi.</li>
       <li><strong>Colori deboli</strong>: bianco (neve, cemento, nuvole) e verde militare (bosco) si confondono con lo sfondo; i preset sono segnalati. Il nero e i grigi hanno problemi simili.</li>
@@ -130,7 +137,7 @@
   </div>
 
   <h2 id="potenzialita">Potenzialità</h2>
-  <div class="card ok">
+  <div class="sf-card ok">
     <ul>
       <li>Passa in rassegna centinaia di foto 4K in minuti e riduce il lavoro dell'operatore a una lista breve e ordinata.</li>
       <li>Funziona anche senza sapere il colore: i suggerimenti dalla scena trovano ciò che “spicca”.</li>
@@ -150,7 +157,12 @@
 
   <h2 id="req">Requisiti</h2>
   <p>Browser moderno con WebAssembly e Web Worker (Chrome, Edge, Firefox, Safari recenti). Consigliato un computer con 8 GB di RAM o più per lotti grandi. Funziona da <a href="https://matmex84.github.io/SkyFind/">matmex84.github.io/SkyFind</a> o aprendo <code>index.html</code> in locale; codice su <a href="https://github.com/MatMex84/SkyFind">GitHub</a>.</p>
-  <p class="sub">Strumento di supporto decisionale: non sostituisce l'esame visivo degli operatori né le procedure operative.</p>
+  <p class="sf-caption">Strumento di supporto decisionale: non sostituisce l'esame visivo degli operatori né le procedure operative.</p>
+
+    <div class="sf-pagenav"><a class="sf-btn primary" href="../#home"><span data-icon="arrow-left"></span> Torna a SkyFind</a></div>
+  </main>
 </div>
+<script src="../icons.js?v=18"></script>
+<script>document.addEventListener('DOMContentLoaded',function(){SF.hydrateIcons();});</script>
 </body>
 </html>

@@ -111,6 +111,25 @@ window.SF = window.SF || {};
       .join('');
   }
   SF.updateSidebarStatus = updateSidebarStatus;
+
+  // ---------------- Barra "Indietro / Avanti" a fine pagina: porta alla fase successiva del flusso ----------------
+  const FLOW = {
+    mission: { prev: 'home', next: 'calibrazione' },
+    calibrazione: { prev: 'mission', next: 'batch' },
+    batch: { prev: 'calibrazione', next: 'report' },
+    report: { prev: 'batch', next: null },
+  };
+  const FLOW_TITLES = { home: 'Home', mission: 'Mission Planner', calibrazione: 'Calibrazione Colore', batch: 'Elaborazione Batch', report: 'Report' };
+  function renderPageNav() {
+    document.querySelectorAll('.sf-pagenav').forEach((el) => {
+      const f = FLOW[el.dataset.page];
+      if (!f) return;
+      const prev = f.prev ? `<button type="button" class="sf-btn" data-go="${f.prev}">${SF.icon('arrow-left')} ${FLOW_TITLES[f.prev]}</button>` : '<span></span>';
+      const next = f.next ? `<button type="button" class="sf-btn primary" data-go="${f.next}">Avanti: ${FLOW_TITLES[f.next]} ${SF.icon('arrow-right')}</button>` : '<span></span>';
+      el.innerHTML = prev + next;
+      el.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => SF.navigate(b.dataset.go)));
+    });
+  }
   /** Singolare/plurale: SF.plural(1,'target','target') → '1 target'. Forme con la stessa parola per 1 e N non servono: si passa solo `one` e `many`. */
   SF.plural = function (n, one, many) { return n + ' ' + (n === 1 ? one : many); };
 
@@ -145,6 +164,7 @@ window.SF = window.SF || {};
   window.addEventListener('hashchange', onHashChange);
   document.addEventListener('DOMContentLoaded', () => {
     if (SF.hydrateIcons) SF.hydrateIcons();
+    renderPageNav();
     onHashChange();
   });
 })();

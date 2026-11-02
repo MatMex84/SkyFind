@@ -38,7 +38,8 @@ Applicazione statica HTML/JS/CSS, senza build step e senza dipendenze da install
 - `geo_utils.js` — proiezione pixel → terreno (yaw e pitch)
 - `detect_worker.js` — Web Worker del rilevamento (OpenCV.js/WASM)
 - `opencv.js` — build WebAssembly di OpenCV.js (`@techstark/opencv-js`)
-- `info/index.html` — scheda tecnica pubblicata su `/info/`
+- `icons.js` — set di icone SVG condivise (app e scheda tecnica)
+- `info/index.html` — scheda tecnica pubblicata su `/info/`, stesso layout dell'app
 
 Pipeline per foto: riduzione + gray-world → maschera colore (HSV/LAB) → esclusioni → morfologia e contorni → fusione blob vicini → filtro geometrico → punteggio → ritaglio e posizione GPS. I dettagli sono nella scheda tecnica.
 

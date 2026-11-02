@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0e1117" />
 <title>SkyFind</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230e1117'/%3E%3Cg fill='none' stroke='%236EA8FE' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='7.5'/%3E%3Ccircle cx='12' cy='12' r='3.6'/%3E%3Cpath d='M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='1' fill='%23F5A623'/%3E%3C/svg%3E" />
 <!--
   APP_VERSION: cambia SOLO questo valore ad ogni modifica di un file .js o
   .css dell'app (es. all'hash del commit, o incrementa di 1). Il "?v=..."
@@ -15,7 +15,7 @@
   appena pubblicate. (opencv.js non è versionato: è una libreria esterna
   pesante che non modifichiamo mai, meglio lasciarla in cache a lungo).
 -->
-<script>window.APP_VERSION = '17';</script>
+<script>window.APP_VERSION = '18';</script>
 <script>document.write('<link rel="stylesheet" href="style.css?v=' + window.APP_VERSION + '" />');</script>
 </head>
 <body>
@@ -35,8 +35,6 @@
       <a class="sf-nav-link" id="nav-batch" onclick="SF.navigate('batch')"><span class="sf-nav-ico" data-icon="image"></span><span class="sf-nav-lbl"><span class="sf-l">Elaborazione Batch</span><span class="sf-s">Batch</span></span></a>
       <a class="sf-nav-link" id="nav-report" onclick="SF.navigate('report')"><span class="sf-nav-ico" data-icon="clipboard"></span><span class="sf-nav-lbl"><span class="sf-l">Report</span><span class="sf-s">Report</span></span></a>
     </nav>
-
-    <a class="sf-info-link" href="info/" target="_blank" rel="noopener"><span data-icon="info"></span> Come funziona</a>
 
     <div class="sf-status-block">
       <strong>Stato missione</strong>
@@ -59,22 +57,22 @@
       <p>Usa il menu per navigare tra i moduli, in ordine:</p>
 
       <div class="sf-home-grid">
-        <div class="sf-card sf-home-card">
-          <h3><span data-icon="plane"></span> 1 · Mission Planner</h3>
+        <a class="sf-card sf-home-card" href="#mission" title="Apri: Mission Planner">
+          <h3><span data-icon="plane"></span> 1 · Mission Planner<span class="sf-card-go" data-icon="arrow-right"></span></h3>
           <p class="sf-caption">Consigli su quota di volo e overlap in base al drone in uso.</p>
-        </div>
-        <div class="sf-card sf-home-card">
-          <h3><span data-icon="palette"></span> 2 · Calibrazione Colore</h3>
+        </a>
+        <a class="sf-card sf-home-card" href="#calibrazione" title="Apri: Calibrazione Colore">
+          <h3><span data-icon="palette"></span> 2 · Calibrazione Colore<span class="sf-card-go" data-icon="arrow-right"></span></h3>
           <p class="sf-caption">Estrazione del profilo colore dal campione target.</p>
-        </div>
-        <div class="sf-card sf-home-card">
-          <h3><span data-icon="image"></span> 3 · Elaborazione Batch</h3>
+        </a>
+        <a class="sf-card sf-home-card" href="#batch" title="Apri: Elaborazione Batch">
+          <h3><span data-icon="image"></span> 3 · Elaborazione Batch<span class="sf-card-go" data-icon="arrow-right"></span></h3>
           <p class="sf-caption">Applica il profilo alle foto di missione (ottimizzato per centinaia di foto 4K) ed estrae i target.</p>
-        </div>
-        <div class="sf-card sf-home-card">
-          <h3><span data-icon="clipboard"></span> 4 · Report</h3>
+        </a>
+        <a class="sf-card sf-home-card" href="#report" title="Apri: Report">
+          <h3><span data-icon="clipboard"></span> 4 · Report<span class="sf-card-go" data-icon="arrow-right"></span></h3>
           <p class="sf-caption">Ritagli dei target rilevati, coordinate GPS e confidenza cromatica, esportabile in HTML/CSV.</p>
-        </div>
+        </a>
       </div>
 
       <div class="sf-success" style="margin-top:1.2rem;">
@@ -90,6 +88,7 @@
       <div class="sf-subtitle">Seleziona il drone: quota di volo e overlap consigliati sono automatici.</div>
       <div class="sf-divider"></div>
       <div id="mp-content"></div>
+      <div class="sf-pagenav" data-page="mission"></div>
     </section>
 
     <section id="page-calibrazione" class="sf-page">
@@ -98,6 +97,7 @@
       <div class="sf-subtitle">Scegli il colore del target col contagocce su una foto oppure da una palette. Il resto è automatico.</div>
       <div class="sf-divider"></div>
       <div id="calib-content"></div>
+      <div class="sf-pagenav" data-page="calibrazione"></div>
     </section>
 
     <section id="page-batch" class="sf-page">
@@ -106,6 +106,7 @@
       <div class="sf-subtitle">Applica il profilo colore calibrato a un lotto di foto di missione ed estrae i target rilevati.</div>
       <div class="sf-divider"></div>
       <div id="batch-content"></div>
+      <div class="sf-pagenav" data-page="batch"></div>
     </section>
 
     <section id="page-report" class="sf-page">
@@ -113,6 +114,7 @@
       <div class="sf-header"><div class="sf-icon" data-icon="clipboard"></div><h1>Report Rilevamenti</h1></div>
       <div class="sf-divider"></div>
       <div id="report-content"></div>
+      <div class="sf-pagenav" data-page="report"></div>
     </section>
 
   </main>
